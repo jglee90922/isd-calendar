@@ -78,13 +78,13 @@ td.lbl.vl::after{content:none}
 .vendor-detail-link:hover{background:var(--hover)}
 .vendor-detail-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 body.vendor-page>*:not(.pwgate):not(#vendorPage){display:none}
-#vendorPage{max-width:1120px;margin:0 auto}
+#vendorPage{width:100%;margin:0}
 .vendor-back{display:inline-block;color:var(--accent);margin-bottom:28px;padding:10px 0;text-decoration:none}
 .vendor-heading{border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:28px}
 .vendor-heading p{color:var(--muted);margin:8px 0 0}
 .vendor-placeholder{min-height:260px;display:grid;place-content:center;text-align:center;border:1px solid var(--line);background:#fafbfc;border-radius:8px;padding:28px;color:var(--muted)}
 .vendor-placeholder h2{color:var(--ink);font-size:20px;margin:0 0 10px}
-@media(max-width:600px){body.vendor-page{padding:20px 18px}#vendorPage h1{font-size:28px}.vendor-placeholder{min-height:220px}}
+@media(max-width:600px){body.vendor-page{padding:18px 16px 40px}#vendorPage h1{font-size:28px}.vendor-placeholder{min-height:220px}}
 .pwgate{position:fixed;inset:0;background:var(--page);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px}
 .pwgate[hidden]{display:none}
 .pwgate form{width:min(400px,100%);border:1px solid var(--line);padding:26px 28px;display:grid;gap:8px}
