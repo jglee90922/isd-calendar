@@ -77,14 +77,6 @@ td.lbl.vl::after{content:none}
 .vendor-detail-link{display:block;width:fit-content;margin-top:5px;padding:4px 12px;border:1px solid #bfcddd;border-radius:4px;color:var(--accent);background:#fff;font-size:12px;font-weight:500;text-decoration:none}
 .vendor-detail-link:hover{background:var(--hover)}
 .vendor-detail-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-body.vendor-page>*:not(.pwgate):not(#vendorPage){display:none}
-#vendorPage{width:100%;margin:0}
-.vendor-back{display:inline-block;color:var(--accent);margin-bottom:28px;padding:10px 0;text-decoration:none}
-.vendor-heading{border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:28px}
-.vendor-heading p{color:var(--muted);margin:8px 0 0}
-.vendor-placeholder{min-height:260px;display:grid;place-content:center;text-align:center;border:1px solid var(--line);background:#fafbfc;border-radius:8px;padding:28px;color:var(--muted)}
-.vendor-placeholder h2{color:var(--ink);font-size:20px;margin:0 0 10px}
-@media(max-width:600px){body.vendor-page{padding:18px 16px 40px}#vendorPage h1{font-size:28px}.vendor-placeholder{min-height:220px}}
 .pwgate{position:fixed;inset:0;background:var(--page);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px}
 .pwgate[hidden]{display:none}
 .pwgate form{width:min(400px,100%);border:1px solid var(--line);padding:26px 28px;display:grid;gap:8px}
@@ -94,6 +86,7 @@ body.vendor-page>*:not(.pwgate):not(#vendorPage){display:none}
 body.locked>*:not(.pwgate){display:none}
 .who{font-size:12.5px;color:var(--muted);cursor:pointer;text-decoration:underline dotted}
 </style>
+<script src="vendor-dashboard-core.js?v=live1"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <div id="gate" class="pwgate"><form autocomplete="off"><h2>인성디지탈 이벤트 캘린더</h2><p>팀 공통 비밀번호와 이름을 입력하세요. 이 브라우저에 기억됩니다.</p><label for="gKey">비밀번호</label><input id="gKey" type="password" required><label for="gUser">이름 · 직급 (변경 기록에 남습니다)</label><input id="gUser" placeholder="예: 홍길동 과장" required><div id="gErr" class="gerr" role="alert"></div><button class="primary" type="submit">들어가기</button></form></div>
 <h1>인성디지탈 이벤트 캘린더 — 2026년 9~12월</h1>
@@ -135,7 +128,7 @@ function renderDrawer(){const {v,m}=cur;const list=byCell(v,m);const b=$("#dBody
  if(!list.length)b.innerHTML=`<div class="empty">등록된 이벤트가 없습니다.</div>`;
  for(const e of list){const d=document.createElement("div");d.className="item";d.dataset.id=e.id;d.innerHTML=`<div class="t"><span class="sym">${SYM[e.status]||"○"}</span><span>${e.type==="promotion"?`<span class="tag">프로모션</span>`:""}${esc(e.title)}</span><span class="pill ${e.status}">${SLABEL[e.status]||e.status}</span></div>
  <div class="meta">${(e.type==="promotion"?[["기간",fmtD(e.date,e.end)],["대상",e.audience],["조건",e.condition],["보상",e.reward],["재원",e.funding],["목표 DR",e.target_dr],["결과 DR",e.result_dr],["마케팅",e.owner],["사업부",e.biz],["진행",e.progress],["비고",e.note]]:[["일정",fmtD(e.date,e.end)],["장소",e.place],["마케팅",e.owner],["사업부",e.biz],["목표",e.goal],["예산·MDF",e.budget],["진행",e.progress],["비고",e.note]]).filter(x=>x[1]).map(([k,x])=>`<span class="k">${k}</span><span>${esc(x)}</span>`).join("")}</div>
- <div class="acts">${canWrite?`<button data-act="edit">수정</button><button data-act="del" class="danger">삭제</button>`:""}</div>`;b.appendChild(d)}
+ <div class="acts">${e.dashboardVendor?`<a class="vendor-detail-link" href="vendor.html?vendor=${encodeURIComponent(e.dashboardVendor)}#promotions">상세 페이지에서 수정</a>`:canWrite?`<button data-act="edit">수정</button><button data-act="del" class="danger">삭제</button>`:""}</div>`;b.appendChild(d)}
  if(canWrite){const add=document.createElement("div");add.className="item";add.innerHTML=`<button data-act="new" class="primary">+ 이벤트 추가</button>`;b.appendChild(add)}
  else b.insertAdjacentHTML("beforeend",`<div class="ro">${db?"편집 권한이 없어 보기만 가능합니다.":"공유 저장소에 연결되지 않아 보기 전용입니다. 편집은 claude.ai에 로그인한 조직 구성원만 가능합니다."}</div>`)}
 function formHtml(e){const s=e.status||"planned";const opt=Object.keys(SLABEL).map(k=>`<option value="${k}" ${k===s?"selected":""}>${SYM[k]} ${SLABEL[k]}</option>`).join("");
@@ -155,14 +148,6 @@ $("#btnCsv").onclick=async()=>{const cols=["vendor","month","type","status","tit
 render();
 // --- 실시간 공유 모드 (Supabase Edge Function API + Realtime broadcast) ---
 document.body.classList.add("locked");
-if(location.pathname.endsWith("/vendor.html")){
- const slug=new URLSearchParams(location.search).get("vendor");
- const name=Object.keys(VSLUG).find(v=>VSLUG[v]===slug);
- document.body.classList.add("vendor-page");
- const page=document.createElement("main");page.id="vendorPage";
- page.innerHTML=`<a class="vendor-back" href="./">← 이벤트 캘린더로 돌아가기</a><header class="vendor-heading"><h1>${name?esc(name):"벤더를 찾을 수 없습니다"}</h1><p>${name?"벤더 상세보기":"캘린더에서 벤더를 다시 선택해 주세요."}</p></header>${name?'<section class="vendor-placeholder"><h2>상세 정보를 준비하고 있습니다</h2><p>이 공간에 벤더별 데이터와 현황을 추가할 예정입니다.</p></section>':""}`;
- document.body.appendChild(page);document.title=(name||"벤더 상세보기")+" | 인성디지탈";
-}
 
 const API="https://chacvogtdqdukpttfwma.supabase.co/functions/v1/cal/api";
 const SB_URL="https://chacvogtdqdukpttfwma.supabase.co",SB_KEY="sb_publishable_qaDOn4EAewMNiW98-ZduHw_vtFO_4_4";
@@ -176,25 +161,27 @@ function setStatus(extra){$("#st").textContent=`실시간 공유 · ${events.len
 function safeRender(){const c=cur;if(c&&(c.log||document.querySelector("#dBody form"))){cur=null;render();cur=c;if(c.log)loadLog()}else render();setStatus()}
 function applyConfig(c){if(!c)return;if(Array.isArray(c.rows))ROWS.splice(0,ROWS.length,...c.rows);if(Array.isArray(c.dark)){DARK.clear();c.dark.forEach(d=>DARK.add(d))}
  if(c.focus!=null)$(".focus").innerHTML="<b>Focus</b> "+esc(c.focus).replace(/ {3}/g,"&nbsp;&nbsp;&nbsp;");if(c.foot!=null)$(".foot").textContent=c.foot}
-async function refresh(){const s=await api("GET","/state");applyConfig(s.config);events=s.events;vendors=s.vendors;last=s.last;safeRender()}
+async function refresh(){const s=await api("GET","/state");applyConfig(s.config);events=s.events.concat(window.VendorDashboardCore.calendarPromotions(s.vendors));vendors=s.vendors;last=s.last;safeRender()}
 col={doc(id){const ref={id:id||("n"+Date.now().toString(36)),async set(body){await api("PUT","/events/"+encodeURIComponent(ref.id),body)},async delete(){await api("DELETE","/events/"+encodeURIComponent(id))}};return ref}};
 vcol={doc(s){return{async set(body){await api("PUT","/vendors/"+encodeURIComponent(s),body)}}}};
 downloads={async save({filename,data}){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([data],{type:"text/plain;charset=utf-8"}));a.download=filename;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}};
 $("#btnCsv").hidden=false;
 $("#who").onclick=()=>{const n=prompt("변경 기록에 남길 이름 · 직급",USER);if(n===null)return;USER=n.trim();try{localStorage.setItem("isd-cal-user",USER)}catch(_){}setStatus()};
-const FL={title:"제목",status:"상태",type:"유형",date:"시작",end:"종료",place:"장소",owner:"마케팅",biz:"사업부",goal:"목표",budget:"예산·MDF",progress:"진행",note:"비고",audience:"대상",condition:"조건",reward:"보상",funding:"재원",target_dr:"목표 DR",result_dr:"결과 DR",month:"월",vendor:"벤더"};
+const FL={dashboard_action:"작업",detailSummary:"변경 내용",detailBefore:"이전 내용",title:"제목",status:"상태",type:"유형",date:"시작",end:"종료",place:"장소",owner:"마케팅",biz:"사업부",goal:"목표",budget:"예산·MDF",progress:"진행",note:"비고",audience:"대상",condition:"조건",reward:"보상",funding:"재원",target_dr:"목표 DR",result_dr:"결과 DR",month:"월",vendor:"벤더"};
 for(const [k,l] of VFIELDS.concat(SFIELDS))FL[k]=FL[k]||l;
 const fv=(k,v)=>{if(v===""||v==null)return "(비움)";if(k==="status")return SLABEL[v]||v;if(k==="type")return v==="promotion"?"프로모션":"이벤트";return String(v)};
 const ALABEL={create:"추가",update:"수정",set:"저장",delete:"삭제"};const SKIP=new Set(["vendor","month","order","id"]);
 function logItem(r){const d=r.detail||{};const ch=d.changes||{};const where=[d.vendor,d.month?`${d.month}월`:""].filter(Boolean).join(" · ");let body="";
- if(r.action==="create")body=Object.entries(ch).filter(([k,[a,b]])=>!SKIP.has(k)&&b!=="").map(([k,[a,b]])=>`<span class="k">${FL[k]||k}</span><span>${esc(fv(k,b))}</span>`).join("");
- else if(r.action==="update"){const rows=Object.entries(ch).filter(([k])=>k!=="order");body=rows.length?rows.map(([k,[a,b]])=>`<span class="k">${FL[k]||k}</span><span>${esc(fv(k,a))} → <b>${esc(fv(k,b))}</b></span>`).join(""):`<span class="k">변경</span><span>내용 동일 (변경 없음)</span>`}
+ if(r.action==="create")body=Object.entries(ch).filter(([k,[a,b]])=>!SKIP.has(k)&&!k.startsWith("_")&&b!=="").map(([k,[a,b]])=>`<span class="k">${FL[k]||k}</span><span>${esc(fv(k,b))}</span>`).join("");
+ else if(r.action==="update"){const rows=Object.entries(ch).filter(([k])=>k!=="order"&&!k.startsWith("_"));body=rows.length?rows.map(([k,[a,b]])=>`<span class="k">${FL[k]||k}</span><span>${esc(fv(k,a))} → <b>${esc(fv(k,b))}</b></span>`).join(""):`<span class="k">변경</span><span>내용 동일 (변경 없음)</span>`}
  else if(r.action==="delete"&&d.snapshot){const sn=d.snapshot;body=[["date",fmtD(sn.date,sn.end)],["owner",sn.owner],["status",sn.status]].filter(x=>x[1]).map(([k,v])=>`<span class="k">${FL[k]||k}</span><span>${esc(fv(k,v))}</span>`).join("")}
- return `<div class="item"><div class="t"><span>${esc(r.title||r.doc_id)}</span><span class="pill ${r.action==="delete"?"gate":r.action==="create"?"confirmed":""}">${ALABEL[r.action]||esc(r.action)}</span></div><div class="meta"><span class="k">시각</span><span>${fmtTs(r.ts)} · ${esc(r.who||"—")}</span>${where?`<span class="k">위치</span><span>${esc(where)}${r.coll==="vendors"?" · 벤더 담당자·전략":""}</span>`:""}${body}</div></div>`}
+ return `<div class="item"><div class="t"><span>${esc(r.title||r.doc_id)}</span><span class="pill ${r.action==="delete"?"gate":r.action==="create"?"confirmed":""}">${esc(d.changes?.dashboard_action?.[1]||ALABEL[r.action]||r.action)}</span></div><div class="meta"><span class="k">시각</span><span>${fmtTs(r.ts)} · ${esc(r.who||"—")}</span>${where?`<span class="k">위치</span><span>${esc(where)}${r.coll==="vendors"?(d.changes?._dashboard?" · 벤더 상세":" · 벤더 담당자·전략"):""}</span>`:""}${body}</div></div>`}
 async function loadLog(){const b=$("#dBody");try{const rows=await api("GET","/log");if(!cur||!cur.log)return;b.innerHTML=rows.length?rows.map(logItem).join(""):'<div class="empty">이력이 없습니다.</div>'}catch(err){b.innerHTML=`<div class="empty">${esc(err.message)}</div>`}}
 $("#btnLog").onclick=()=>{cur={log:true};$("#dTitle").textContent="변경 이력";$("#dSub").textContent="최근 60건 · 누가 무엇을 어떻게 바꿨는지 · 실시간 갱신";$("#dr").classList.add("open");$("#ov").classList.add("open");$("#dBody").innerHTML='<div class="empty">불러오는 중…</div>';loadLog()};
 async function start(){canWrite=true;document.body.classList.remove("locked");$("#gate").hidden=true;
  try{await refresh()}catch(err){$("#st").textContent="불러오기 실패: "+err.message;return}
+ const params=new URLSearchParams(location.search),v=Object.keys(VSLUG).find(n=>VSLUG[n]===params.get("editVendor")),e=events.find(x=>x.id===params.get("event"));
+ if(v)openVendor(v);else if(e)openCell(e.vendor,+e.month);
  try{const sb=window.supabase.createClient(SB_URL,SB_KEY,{realtime:{params:{eventsPerSecond:5}}});sb.channel("cal-changes").on("broadcast",{event:"changed"},()=>{refresh().catch(()=>{})}).subscribe(st=>{if(st==="SUBSCRIBED")setStatus();else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT")setStatus("실시간 연결 끊김 · 30초마다 새로고침")})}catch(_){setStatus("실시간 미연결 · 30초마다 새로고침")}
  setInterval(()=>{refresh().catch(()=>{})},30000);document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh().catch(()=>{})})}
 $("#gate form").onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;$("#gErr").textContent="";KEY=$("#gKey").value.trim();USER=$("#gUser").value.trim();
