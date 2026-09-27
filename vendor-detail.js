@@ -7,7 +7,7 @@ const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'num
 const fmt=n=>typeof n==='number'&&Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionDigits:2}):'—';
 const pct=(n,t)=>typeof n==='number'&&typeof t==='number'&&t>0?`${fmt(n/t*100)}%`:'—';
 const uid=()=>crypto.randomUUID().replaceAll('-','');
-let key='',user='',state=null,records=[],editing=null,saving=false,refreshing=false,lastLoaded='',importRows=[];
+let key='',user='',state=null,records=[],editing=null,saving=false,refreshing=false,lastLoaded='',importRows=[],leadUI=null;
 try{key=localStorage.getItem('isd-cal-key')||'';user=localStorage.getItem('isd-cal-user')||'';}catch(_){}
 const requestStates={received:'접수',working:'진행 중',waiting:'회신 대기',done:'완료'},actionStates={planned:'예정',working:'진행 중',hold:'보류',done:'완료'},leadStates={new:'미접촉',contacted:'접촉',qualified:'유효 리드',opportunity:'영업 기회',won:'수주',lost:'종료'};
 const kindNames={settings:'벤더 설정',definition:'실적 항목',metric:'분기 실적',annual:'연간 타겟',partners:'파트너 현황',promotion:'프로모션',lead:'리드',action:'액션 플랜',request:'사업부 요청'};
@@ -22,14 +22,13 @@ const data=(kind,id)=>{const r=record(kind,id);return r&&!r.current.deleted?r.cu
 const list=kind=>records.filter(r=>r.kind===kind&&!r.current.deleted);
 const settings=()=>data('settings','main');
 const currentQ=()=>C.quarter(today(),settings());
-function metrics(){
- const defs=new Map((window.VENDOR_PROFILES[slug]?.metrics||[]).map(d=>[d.id,{...d}]));
- for(const r of list('definition'))defs.set(r.recordId,{...r.current.payload,id:r.recordId});
- return [...defs.values()].filter(d=>!d.hidden);
-}
+function metrics(){return [{id:'deal_new',name:'신규',unit:'K USD'},{id:'deal_renewal',name:'리뉴얼',unit:'K USD'}];}
+const totalMetric={id:'deal_total',name:'전체 합계',unit:'K USD'};
+const comparisonMetrics=()=>[totalMetric,...metrics()];
 const metricRecord=(id,start)=>record('metric',`${id}:${start}`);
 const metricData=(id,start)=>data('metric',`${id}:${start}`);
-const primary=()=>metrics().find(m=>m.id===(settings()?.primaryMetric||$('#historyMetric').value))||metrics()[0];
+const primary=()=>metrics()[0];
+const performanceData=(id,start)=>id==='deal_total'?C.dealTotal(metrics().map(m=>metricData(m.id,start)||{})):metricData(id,start);
 const empty=(text,button='')=>`<div class="live-empty">${esc(text)}${button}</div>`;
 const editButton=r=>`<button class="btn" data-edit-kind="${r.kind}" data-record="${esc(r.recordId)}">${r.conflict?'동시 수정 확인':'수정'}</button>`;
 const newButton=(kind,label)=>`<button class="btn" data-new="${kind}">${label}</button>`;
@@ -42,11 +41,23 @@ async function saveRecord(kind,recordId,payload,parents,deleted=false){
  // so even a simultaneous write between read and save cannot erase another edit.
  ingest(await api('GET','/state'));const latest=record(kind,recordId),heads=latest?.heads.map(h=>h.id)||[];
  if(!C.sameHeads(heads,parents))throw Error('다른 사람이 이 항목을 수정했습니다. 입력 내용은 그대로 두었습니다. 닫고 최신 내용을 확인한 뒤 다시 저장해 주세요.');
+ if(Object.keys(state.vendors).length>=900)throw Error('저장 공간 확장이 필요합니다. 관리자에게 문의해 주세요. 기존 자료는 유지됩니다.');
  const id='vd_'+slug+'_'+uid(),revision={schema:1,vendorId:slug,kind,recordId,parents:[...heads],payload,deleted,savedAt:new Date().toISOString(),author:user};
  const summary=summaryText(kind,payload);
  const body={vendor:name,title:`${name} · ${kindNames[kind]||kind} · ${payload.title||payload.name||payload.metricId||''}`.slice(0,120),dashboard_action:deleted?'보관':latest?'수정':'추가',detailSummary:summary,detailBefore:latest?summaryText(kind,latest.current.payload):"",_dashboard:revision};
  try{await api('PUT','/vendors/'+id,body);}catch(error){const latestState=await api('GET','/state').catch(()=>null);if(!latestState?.vendors?.[id])throw error;}
  ingest(await api('GET','/state'));if(!state.vendors[id])throw Error('저장 결과를 아직 확인하지 못했습니다. 새로고침 후 다시 확인해 주세요.');return id;
+}
+async function saveBatch(items,onProgress){
+ if(saving)throw Error('다른 저장이 끝난 뒤 다시 시도해 주세요.');saving=true;
+ try{for(let start=0;start<items.length;start+=100){
+  const chunk=items.slice(start,start+100);ingest(await api('GET','/state'));
+  if(Object.keys(state.vendors).length>=900)throw Error('저장 공간 확장이 필요합니다. 관리자에게 문의해 주세요.');
+  for(const item of chunk){const latest=record(item.kind,item.recordId);if(!C.sameHeads(latest?.heads.map(h=>h.id)||[],item.parents))throw Error('미리보기 이후 수정된 리드가 있습니다. 미리보기를 다시 확인해 주세요.');}
+  const id='vd_'+slug+'_'+uid(),body={vendor:name,title:`${name} · 리드 엑셀 ${chunk.length}건`,dashboard_action:'일괄 저장',detailSummary:`신규 ${chunk.filter(r=>!r.parents.length).length}건 · 수정 ${chunk.filter(r=>r.parents.length).length}건`,_dashboardBatch:{schema:1,vendorId:slug,savedAt:new Date().toISOString(),author:user,items:chunk.map(r=>({...r,deleted:false}))}};
+  try{await api('PUT','/vendors/'+id,body);}catch(error){const check=await api('GET','/state').catch(()=>null);if(!check?.vendors?.[id])throw error;}
+  ingest(await api('GET','/state'));if(!state.vendors[id])throw Error('저장 결과를 확인하지 못했습니다. 최신 내용을 확인해 주세요.');onProgress(Math.min(start+100,items.length));
+ }}finally{saving=false;render();}
 }
 function summaryText(kind,p){if(kind==='metric')return `${p.metricId} · ${p.quarterStart} · 실적 ${fmt(p.actual)} / 타겟 ${fmt(p.target)}`;if(kind==='request')return `${p.title} · ${requestStates[p.status]} · 담당 ${p.owner} · 기한 ${p.due} · ${p.history?.at(-1)?.text||''}`;if(kind==='promotion')return `${p.title} · ${p.start}~${p.end} · ${(p.goals||[]).map(g=>`${g.name} ${fmt(g.actual)}/${fmt(g.target)} ${g.unit}`).join(' / ')}`;return Object.entries(p).filter(([k,v])=>!['history','goals'].includes(k)&&v!==''&&v!==null).map(([k,v])=>`${fieldLabels[k]||k}: ${typeof v==='object'?JSON.stringify(v):v}`).join(' · ').slice(0,1500);}
 function render(){
@@ -56,27 +67,24 @@ function render(){
  renderMetrics(q);renderAnnual(q);renderHistory(q);renderPartners(q);renderPromotions();renderLeads();renderActions(q);renderRequests();renderContacts();
 }
 function renderMetrics(q){
- const defs=metrics();$('#metricHint').textContent=q?(window.VENDOR_PROFILES[slug]?`${name} 항목 · ${q.label} 누적`:'벤더에 맞는 실적 항목을 추가해 사용하세요.'):'먼저 벤더 설정에서 회계연도와 비교 기준 지표를 등록해 주세요.';
- if(!defs.length){$('#liveMetrics').innerHTML=empty('아직 등록된 실적 항목이 없습니다. '+name+'에서 사용하는 항목을 추가해 주세요.');return;}
- const rows=defs.map(d=>({...d,...(q?metricData(d.id,q.start):{}),def:d,r:q?metricRecord(d.id,q.start):null}));
- const controls=d=>`<div class="metric-actions"><button class="metric-explain" data-info="${esc(d.id)}">항목 설명</button><button class="btn" data-value="${esc(d.id)}">실적 입력</button></div>`;
- if(['okta','checkpoint'].includes(slug)){
-  const sumIds=slug==='okta'?['upsell','new']:['nb','renew'];const summands=rows.filter(d=>sumIds.includes(d.id));const sameUnit=summands.length===2&&summands.every(d=>d.unit==='K USD');const sameDate=summands.length===2&&!!summands[0].asOf&&summands.every(d=>d.asOf===summands[0].asOf);const sum=field=>sameUnit&&(field==='target'||sameDate)?C.total(summands,field):null;
-  const total={name:slug==='okta'?'Total ARR':'Total (Overall)',summary:(slug==='okta'?'Upsell + New':'New Business + Renew')+(!sameDate?' · 동일 기준일 입력 필요':''),unit:'K USD',actual:sum('actual'),target:sum('target'),yoy:sum('yoy'),qoq:sum('qoq')};
-  const complete=[...rows];complete.splice(slug==='okta'?2:rows.length,0,total);
-  $('#liveMetrics').innerHTML=`<div class="scroll"><table class="booking-table"><thead><tr><th>항목</th><th>단위</th><th>분기 타겟</th><th>${slug==='checkpoint'?'SA 실적':'실적'}</th><th>달성률</th><th>YoY</th><th>QoQ</th><th>기준일 / 입력</th></tr></thead><tbody>${complete.map(d=>`<tr class="${d.id?'':'booking-total'}"><th>${esc(d.name)}<small>${esc(d.summary)}</small>${d.id?`<button class="metric-explain" data-info="${esc(d.id)}">항목 설명</button>`:''}</th><td>${esc(d.unit)}</td><td>${fmt(d.target)}</td><td>${fmt(d.actual)}</td><td>${pct(d.actual,d.target)}</td><td>${growthHTML(d.actual,d.yoy,'YoY')}</td><td>${growthHTML(d.actual,d.qoq,'QoQ')}</td><td>${d.id?`${esc(d.asOf||'미입력')}<br><button class="btn" data-value="${esc(d.id)}">실적 입력</button>`:'합계 자동 계산'}</td></tr>`).join('')}</tbody></table></div>`;
- }else $('#liveMetrics').innerHTML=`<div class="live-metric-grid">${rows.map(d=>`<article class="portal-metric"><h3>${esc(d.name)}</h3><p class="metric-summary">${esc(d.summary)}</p><strong>${fmt(d.actual)} <small>${esc(d.unit)}</small></strong><div class="muted">${d.asOf?esc(d.asOf)+' 기준':'실적 미입력'}</div>${d.target!=null?`<p>타겟 ${fmt(d.target)} · 달성 ${pct(d.actual,d.target)}</p>`:''}<div class="metric-comparisons">${growthHTML(d.actual,d.yoy,'YoY')}${growthHTML(d.actual,d.qoq,'QoQ')}</div>${controls(d)}</article>`).join('')}</div>`;
+ $('#metricHint').textContent=q?`${name} · ${q.label} 누적 · ${settings()?.performanceBasis||'실적 인정 기준 미설정'}`:'벤더 설정에서 FY 시작월과 실적 인정 기준을 등록해 주세요.';
+ const rows=metrics().map(m=>({...m,...(q?metricData(m.id,q.start):{})})),sum=C.dealTotal(rows);
+ const all=[...rows,{...totalMetric,...sum}];
+ $('#liveMetrics').innerHTML=`<div class="scroll"><table class="booking-table"><thead><tr><th>딜 구분</th><th>분기 타겟 (K USD)</th><th>실적 (K USD)</th><th>달성률</th><th>YoY</th><th>QoQ</th><th>집계 기준일 / 입력</th></tr></thead><tbody>${all.map(d=>`<tr class="${d.id==='deal_total'?'booking-total':''}"><th>${d.name}</th><td>${fmt(d.target)}</td><td>${fmt(d.actual)}</td><td>${pct(d.actual,d.target)}</td><td>${growthHTML(d.actual,d.yoy,'YoY')}</td><td>${growthHTML(d.actual,d.qoq,'QoQ')}</td><td>${d.id==='deal_total'?(sum.asOf?esc(sum.asOf)+' · 자동 합계':'동일 기준일의 신규·리뉴얼 입력 필요'):`${esc(d.asOf||'미입력')}<br><button class="btn" data-value="${d.id}">실적 입력</button>`}</td></tr>`).join('')}</tbody></table></div>`;
+ const legacy=list('metric').filter(r=>!metrics().some(m=>m.id===r.current.payload.metricId));
+ $('#legacyMetrics').hidden=!legacy.length;
+ $('#legacyMetricsContent').innerHTML=legacy.length?`<p>이전에 저장한 항목을 보존합니다. 신규·리뉴얼 합계에는 포함하지 않습니다.</p><div class="scroll"><table><thead><tr><th>항목</th><th>분기 시작</th><th>기준일</th><th>타겟</th><th>실적</th></tr></thead><tbody>${legacy.map(r=>{const p=r.current.payload;return `<tr><td>${esc(p.metricId)}</td><td>${esc(p.quarterStart)}</td><td>${esc(p.asOf)}</td><td>${fmt(p.target)}</td><td>${fmt(p.actual)}</td></tr>`}).join('')}</tbody></table></div>`:'';
 }
 function renderAnnual(q){
  $('#annualHeading').textContent=q?q.fy+' 연간 벤더 타겟':'연간 벤더 타겟';const p=q?data('annual',q.fyStart):null;
- $('#annualBasis').textContent=p?`${metrics().find(m=>m.id===p.metricId)?.name||p.metricId} · ${p.asOf||'기준일 미입력'} 기준`:q?`${q.fyStart} — ${q.fyEnd}`:'회계연도 설정 후 입력할 수 있습니다.';
+ $('#annualBasis').textContent=p?`${comparisonMetrics().find(m=>m.id===p.metricId)?.name||p.metricId} · ${p.asOf||'기준일 미입력'} 기준`:q?`${q.fyStart} — ${q.fyEnd}`:'회계연도 설정 후 입력할 수 있습니다.';
  if(!p){$('#annualContent').innerHTML=empty('연간 타겟과 누적 실적이 아직 입력되지 않았습니다.');return;}
  const unit=metrics().find(m=>m.id===p.metricId)?.unit||'K USD',items=p.mode==='set'?[['연간 타겟',fmt(p.target)+' '+unit],['FY 누적 실적',fmt(p.actual)+' '+unit],['달성률',pct(p.actual,p.target)],['잔여 타겟',p.actual===null?'—':fmt(Math.max(0,p.target-p.actual))+' '+unit]]:[['연간 타겟',p.mode==='none'?'없음':'확인 중'],['FY 누적 실적',fmt(p.actual)+' '+unit]];
  $('#annualContent').innerHTML=`<div class="annual-metrics">${items.map(([k,v])=>`<div><small>${k}</small><strong>${esc(v)}</strong></div>`).join('')}</div>`;
 }
-function renderHistory(q){const defs=metrics(),selection=$('#historyMetric').value||settings()?.primaryMetric;$('#historyMetric').innerHTML=defs.map(m=>`<option value="${esc(m.id)}" ${m.id===selection?'selected':''}>${esc(m.name)} (${esc(m.unit)})</option>`).join('');const m=defs.find(d=>d.id===$('#historyMetric').value);
+function renderHistory(q){const defs=comparisonMetrics(),selection=$('#historyMetric').value||'deal_total';$('#historyMetric').innerHTML=defs.map(m=>`<option value="${esc(m.id)}" ${m.id===selection?'selected':''}>${esc(m.name)} (${esc(m.unit)})</option>`).join('');const m=defs.find(d=>d.id===$('#historyMetric').value);
  if(!q||!m){$('#historyContent').innerHTML=empty('회계연도와 실적 지표를 설정하면 5개 분기를 비교할 수 있습니다.');return;}
- $('#historyContent').innerHTML=`<table><thead><tr><th>분기</th><th>기간</th><th>타겟 (${esc(m.unit)})</th><th>실적 (${esc(m.unit)})</th><th>달성률</th><th>집계 기준일</th><th>입력</th></tr></thead><tbody>${[-4,-3,-2,-1,0].map(offset=>{const p=C.quarter(today(),settings(),offset),v=metricData(m.id,p.start)||{};return `<tr><td>${esc(p.label)}${offset===0?' · 현재':''}</td><td>${p.start}~${p.end}</td><td>${fmt(v.target)}</td><td>${fmt(v.actual)}</td><td>${pct(v.actual,v.target)}</td><td>${esc(v.asOf||'미입력')}</td><td><button class="btn" data-value="${esc(m.id)}" data-period="${p.start}">입력</button></td></tr>`}).join('')}</tbody></table>`;
+ $('#historyContent').innerHTML=`<table><thead><tr><th>분기</th><th>기간</th><th>타겟 (${esc(m.unit)})</th><th>실적 (${esc(m.unit)})</th><th>달성률</th><th>집계 기준일</th><th>입력</th></tr></thead><tbody>${[-4,-3,-2,-1,0].map(offset=>{const p=C.quarter(today(),settings(),offset),v=performanceData(m.id,p.start)||{};return `<tr><td>${esc(p.label)}${offset===0?' · 현재':''}</td><td>${p.start}~${p.end}</td><td>${fmt(v.target)}</td><td>${fmt(v.actual)}</td><td>${pct(v.actual,v.target)}</td><td>${esc(v.asOf||'미입력')}</td><td>${m.id==='deal_total'?metrics().map(x=>`<button class="btn" data-value="${x.id}" data-period="${p.start}">${x.name} 입력</button>`).join(' '):`<button class="btn" data-value="${esc(m.id)}" data-period="${p.start}">입력</button>`}</td></tr>`}).join('')}</tbody></table>`;
 }
 function renderPartners(q){const p=q?data('partners',q.start):null;if(!p){$('#partnerContent').innerHTML=empty('이번 Q의 파트너 현황이 아직 입력되지 않았습니다.');return;}const inactive=p.registered!==null&&p.active!==null?p.registered-p.active:null;$('#partnerContent').innerHTML=`<div class="partner-stats">${[['등록 파트너',p.registered,'개사'],['Active partner',p.active,'개사'],['비활성 파트너',inactive,'개사'],['활성 비율',p.registered>0&&p.active!==null?p.active/p.registered*100:null,'%']].map(([label,n,u])=>`<div class="partner-stat"><span>${label}</span><strong>${fmt(n)}<small>${u}</small></strong></div>`).join('')}</div><p>${esc(p.rule)} · ${esc(p.asOf)} 기준</p><p class="muted">이번 Q 신규 활성 ${fmt(p.newActive)}개사 · 재활성 ${fmt(p.reactivated)}개사</p>`;}
 function renderPromotions(){
@@ -84,20 +92,20 @@ function renderPromotions(){
  const goalsHTML=goals=>(goals||[]).map(g=>`<div class="metric"><div class="row"><b>${esc(g.name)}</b><strong>${pct(g.actual,g.target)}</strong></div><p>${fmt(g.actual)} / ${fmt(g.target)} ${esc(g.unit)}</p><small>인정 기준: ${esc(g.rule||'미입력')}</small></div>`).join('');
  $('#promotionContent').innerHTML=native.map(r=>{const p=r.current.payload,done=p.goals?.length&&p.goals.every(g=>g.actual!==null&&g.target>0&&g.actual>=g.target);return `<article class="promo-card"><div class="row"><h3>${esc(p.title)}</h3>${editButton(r)}</div><p>${esc(p.start)} — ${esc(p.end)} <span class="tag">${done?'목표 달성':p.end<today()?'종료':p.start>today()?'예정':'진행 중'}</span></p><p>${esc(p.scheme||'스킴 미입력')}</p>${goalsHTML(p.goals)}<small>목표가 여러 개면 모두 충족할 때 달성으로 표시합니다.</small></article>`}).join('')+calendar.map(e=>`<article class="promo-card"><div class="row"><h3>${esc(e.title)}</h3><a class="btn" href="./?event=${encodeURIComponent(e.id)}">캘린더에서 수정</a></div><p>${esc(e.date||'시작 미정')} — ${esc(e.end||'종료 미정')} <span class="tag">캘린더 연동</span></p><dl class="compact-kv">${[['대상',e.audience],['조건',e.condition],['보상 스킴',e.reward],['목표',e.goal],['목표 DR',e.target_dr],['결과 DR',e.result_dr],['진행',e.progress],['담당',e.owner]].filter(([,v])=>v!==undefined&&v!=='').map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></article>`).join('')||empty('등록된 프로모션이 없습니다.');
 }
-function renderLeads(){const rows=list('lead');$('#leadSummary').innerHTML=Object.entries(leadStates).map(([k,v])=>`<div class="stage"><small>${v}</small><b>${rows.filter(r=>r.current.payload.stage===k).length}</b></div>`).join('');$('#leadContent').innerHTML=rows.length?`<table><thead><tr><th>고객 / 리드</th><th>출처</th><th>단계</th><th>담당</th><th>최근 접촉</th><th>다음 조치 / 기한</th><th>수정</th></tr></thead><tbody>${rows.map(r=>{const p=r.current.payload;return `<tr><td>${esc(p.name)}</td><td>${esc(p.source)}</td><td>${leadStates[p.stage]}</td><td>${esc(p.owner)}</td><td>${esc(p.lastContact||'미입력')}</td><td>${esc(p.next)}<small>${esc(p.due||'')}</small></td><td>${editButton(r)}</td></tr>`}).join('')}</tbody></table>`:empty('등록된 리드가 없습니다.');}
+function renderLeads(){leadUI?.render();}
 function renderActions(q){const rows=list('action').filter(r=>q&&r.current.payload.quarterStart===q.start);$('#actionSummary').textContent=q?`${q.label} · 전체 ${rows.length}건 · 완료 ${rows.filter(r=>r.current.payload.status==='done').length}건 · 기한 경과 ${rows.filter(r=>overdue(r.current.payload)).length}건`:'회계연도 설정 후 이번 Q 액션을 등록합니다.';$('#actionContent').innerHTML=rows.length?`<table><thead><tr><th>핵심 과제</th><th>완료 기준</th><th>담당</th><th>기한</th><th>상태</th><th>수정</th></tr></thead><tbody>${rows.map(r=>{const p=r.current.payload;return `<tr><td>${esc(p.title)}</td><td>${esc(p.criteria)}</td><td>${esc(p.owner)}</td><td>${esc(p.due)}</td><td><span class="tag ${overdue(p)?'warn':''}">${actionStates[p.status]}${overdue(p)?' · 기한 경과':''}</span></td><td>${editButton(r)}</td></tr>`}).join('')}</tbody></table>`:empty('이번 Q에 등록된 액션이 없습니다.');}
 function renderRequests(){const all=list('request'),filter=$('#requestFilter').value;$('#requestSummary').innerHTML=[['전체 요청',all.length],['미완료',all.filter(r=>r.current.payload.status!=='done').length],['기한 경과',all.filter(r=>overdue(r.current.payload)).length],['완료',all.filter(r=>r.current.payload.status==='done').length]].map(([k,v])=>`<div class="request-stat"><span>${k}</span><b>${v}<small>건</small></b></div>`).join('');const rows=all.filter(r=>filter==='all'||filter==='open'&&r.current.payload.status!=='done'||filter==='overdue'&&overdue(r.current.payload)||r.current.payload.status===filter);$('#requestContent').innerHTML=rows.map(r=>{const p=r.current.payload,h=p.history||[],last=h.at(-1);return `<article class="request-card ${overdue(p)?'is-overdue':''}"><div class="row"><span class="tag ${overdue(p)?'warn':p.status==='done'?'good':''}">${requestStates[p.status]}${overdue(p)?' · 기한 경과':''}</span>${editButton(r)}</div><h3>${esc(p.title)}</h3><p class="request-content">${esc(p.content)}</p><dl class="request-meta">${[['요청 부서·요청자',p.requester],['대응 담당자',p.owner],['요청일',p.created],['처리 기한',p.due]].map(([k,v])=>`<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl><div class="request-response"><span>최근 대응 · ${esc(last?.date||'—')}</span><p>${esc(last?.text||'대응 기록 없음')}</p>${p.next?`<p><b>다음 조치</b> ${esc(p.next)}</p>`:''}</div><details><summary>대응 이력 ${h.length}건</summary><ol class="request-history">${h.map(x=>`<li><small>${esc(x.date)} · ${esc(x.by)} · ${requestStates[x.status]||''}</small><p>${esc(x.text)}</p></li>`).join('')}</ol></details></article>`}).join('')||empty('해당하는 요청 사항이 없습니다.');}
 function renderContacts(){const d=state.vendors[slug]||{};const fields=[['head','지사장'],['channel','채널 담당'],['vmkt','벤더 마케팅'],['am','벤더 AM'],['sales','인성 영업'],['mkt','인성 마케팅'],['fy','회계연도 메모'],['direction','전략 방향'],['actions','핵심 활동'],['risk','리스크']];$('#contactsContent').innerHTML=`<dl class="contact-grid">${fields.map(([k,l])=>`<div><dt>${l}</dt><dd>${esc(d[k]||'미입력')}</dd></div>`).join('')}</dl>`;$('#editContacts').href='./?editVendor='+encodeURIComponent(slug);}
-const fieldLabels={title:'제목',name:'이름',metricId:'실적 지표',quarterStart:'분기 시작일',asOf:'집계 기준일',actual:'실적',target:'타겟',yoy:'전년 동일 시점 실적',qoq:'직전 Q 동일 시점 실적',source:'출처',note:'비고',startMonth:'FY 시작월',fyNaming:'FY 표기 기준',primaryMetric:'대표 실적 지표',mode:'연간 타겟',registered:'등록 파트너',active:'활성 파트너',newActive:'신규 활성',reactivated:'재활성',rule:'인정 기준',summary:'한 줄 설명',meaning:'항목 의미',date:'실적 인정 날짜',unit:'단위',start:'시작일',end:'종료일',scheme:'보상 스킴',owner:'담당자',stage:'리드 단계',lastContact:'최근 접촉일',next:'다음 조치',due:'처리 기한',criteria:'완료 기준',status:'상태',content:'요청 내용',requester:'요청 부서·요청자',created:'요청일',priority:'우선순위',response:'이번 대응 내용'};
+const fieldLabels={title:'제목',name:'이름',contact:'고객 담당자',email:'이메일',phone:'전화번호',performanceBasis:'실적 인정 기준',metricId:'실적 지표',quarterStart:'분기 시작일',asOf:'집계 기준일',actual:'실적',target:'타겟',yoy:'전년 동일 시점 실적',qoq:'직전 Q 동일 시점 실적',source:'출처',note:'비고',startMonth:'FY 시작월',fyNaming:'FY 표기 기준',primaryMetric:'대표 실적 지표',mode:'연간 타겟',registered:'등록 파트너',active:'활성 파트너',newActive:'신규 활성',reactivated:'재활성',rule:'인정 기준',summary:'한 줄 설명',meaning:'항목 의미',date:'실적 인정 날짜',unit:'단위',start:'시작일',end:'종료일',scheme:'보상 스킴',owner:'담당자',stage:'리드 단계',lastContact:'최근 접촉일',next:'다음 조치',due:'처리 기한',criteria:'완료 기준',status:'상태',content:'요청 내용',requester:'요청 부서·요청자',created:'요청일',priority:'우선순위',response:'이번 대응 내용'};
 const opt=map=>Object.entries(map);
 function schema(kind){const defs=metrics().map(d=>[d.id,d.name+' ('+d.unit+')']);switch(kind){
- case 'settings':return [['startMonth','FY 시작월','select',true,Array.from({length:12},(_,i)=>[i+1,(i+1)+'월'])],['fyNaming','FY 연도 표기','select',true,[['start','시작 연도'],['end','종료 연도']]],['primaryMetric','대표 실적 지표','select',false,defs]];
+ case 'settings':return [['startMonth','FY 시작월','select',true,Array.from({length:12},(_,i)=>[i+1,(i+1)+'월'])],['fyNaming','FY 연도 표기','select',true,[['start','시작 연도'],['end','종료 연도']]],['performanceBasis','실적 인정 기준 (예: 부킹 / ARR / SA)','text',true]];
  case 'definition':return [['name','항목명','text',true],['unit','단위','select',true,[['K USD','K USD (천 달러)'],['건','건'],['개사','개사'],['명','명']]],['summary','한 줄 설명','text',true],['meaning','항목의 의미','textarea',true],['rule','집계 대상·제외 조건','textarea',false],['date','실적 인정 날짜','text',false]];
  case 'metric':return [['metricId','실적 지표','select',true,defs],['quarterStart','분기 시작일','date',true],['asOf','집계 기준일','date',true],['actual','이번 Q 누적 실적','number',false],['target','분기 타겟 (없으면 비움)','number',false],['yoy','전년 동일 Q · 같은 경과 시점 실적','number',false],['qoq','직전 Q · 같은 경과 시점 실적','number',false],['source','자료 출처','text',false],['note','비고','textarea',false]];
- case 'annual':return [['metricId','연간 비교 지표','select',true,defs],['mode','연간 타겟 유무','select',true,[['set','있음'],['none','없음'],['pending','확인 중']]],['target','연간 타겟','number',false],['actual','FY 누적 실적','number',false],['asOf','집계 기준일','date',true],['source','자료 출처','text',false]];
+ case 'annual':return [['metricId','연간 비교 지표','select',true,comparisonMetrics().map(d=>[d.id,d.name+' (K USD)'])],['mode','연간 타겟 유무','select',true,[['set','있음'],['none','없음'],['pending','확인 중']]],['target','연간 타겟','number',false],['actual','FY 누적 실적','number',false],['asOf','집계 기준일','date',true],['source','자료 출처','text',false]];
  case 'partners':return [['asOf','집계 기준일','date',true],['registered','등록 파트너 (개사)','number',false],['active','활성 파트너 (개사)','number',false],['newActive','신규 활성 (개사)','number',false],['reactivated','재활성 (개사)','number',false],['rule','활성 파트너 인정 기준','textarea',true]];
  case 'promotion':return [['title','프로모션명','text',true],['start','시작일','date',true],['end','종료일','date',true],['owner','담당자','text',false],['status','일정 상태','select',true,[['planned','계획'],['confirmed','확정'],['gate','결정 시점'],['done','완료']]],['scheme','보상 스킴','textarea',true]];
- case 'lead':return [['name','고객 / 리드명','text',true],['source','출처 / 행사명','text',false],['stage','현재 단계','select',true,opt(leadStates)],['owner','담당자','text',true],['lastContact','최근 접촉일','date',false],['next','다음 조치','text',false],['due','다음 조치 기한','date',false],['note','비고','textarea',false]];
+ case 'lead':return [['name','고객 / 리드명','text',true],['contact','고객 담당자','text',false],['email','이메일','email',false],['phone','전화번호','text',false],['source','출처 / 행사명','text',false],['stage','현재 단계','select',true,opt(leadStates)],['owner','담당자','text',true],['lastContact','최근 접촉일','date',false],['next','다음 조치','text',false],['due','다음 조치 기한','date',false],['note','비고','textarea',false]];
  case 'action':return [['title','핵심 과제','text',true],['quarterStart','분기 시작일','date',true],['criteria','완료 기준','textarea',true],['owner','담당자','text',true],['due','처리 기한','date',true],['status','상태','select',true,opt(actionStates)],['note','진행 내용','textarea',false]];
  case 'request':return [['title','요청 제목','text',true],['content','요청 내용','textarea',true],['requester','요청 부서·요청자','text',true],['owner','대응 담당자','text',true],['created','요청일','date',true],['due','처리 기한','date',true],['priority','우선순위','select',true,[['보통','보통'],['높음','높음'],['낮음','낮음']]],['status','진행 상태','select',true,opt(requestStates)],['response','이번 대응 내용','textarea',false],['next','다음 조치','textarea',false]];
  default:return [];
@@ -108,7 +116,7 @@ function fieldHTML(field,value){const [id,label,type,required,options]=field;con
  else control=`<input ${common} type="${type}" value="${esc(value??'')}" ${type==='number'?'min="0" step="any"':'maxlength="200"'}>`;
  return `<label class="${wide?'wide':''}">${label}${control}</label>`;
 }
-function requireQuarter(){if(!currentQ()){openEditor('settings','main');$('#editorHint').textContent='실적·타겟·파트너·액션을 등록하기 전에 FY 시작월과 표기 기준을 저장해 주세요.';return false;}return true;}
+function requireQuarter(){if(!currentQ()){openEditor('settings','main');$('#editorHint').textContent='실적·타겟·파트너·액션을 등록하기 전에 FY 시작월과 실적 인정 기준을 저장해 주세요.';return false;}return true;}
 function openEditor(kind,id=null,seed={},resolve=false){
  if(saving)return;
  if(['metric','annual','partners','action'].includes(kind)&&!requireQuarter())return;
@@ -117,10 +125,10 @@ function openEditor(kind,id=null,seed={},resolve=false){
  const r=record(kind,id);if(r?.conflict&&!resolve){showConflict(r);return;}
  const old=r&&!r.current.deleted?r.current.payload:null;
  const inputQ=C.quarter(seed.quarterStart||old?.quarterStart||q?.start,settings());
- const initial={...{asOf:inputQ&&inputQ.end<today()?inputQ.end:today(),created:today(),quarterStart:q?.start,metricId:primary()?.id,unit:'K USD',priority:'보통',status:kind==='request'?'received':'planned',stage:'new'},...old,...seed};
+ const initial={...{asOf:inputQ&&inputQ.end<today()?inputQ.end:today(),created:today(),quarterStart:q?.start,metricId:kind==='annual'?'deal_total':primary()?.id,unit:'K USD',priority:'보통',status:kind==='request'?'received':'planned',stage:'new'},...old,...seed};
  editing={kind,id,parents:r?.heads.map(h=>h.id)||[],old:old||{},exists:!!old};
  $('#editorTitle').textContent=(kindNames[kind]||kind)+(old?' 수정':' 입력');
- $('#editorHint').textContent=kind==='metric'?'빈 값은 미입력으로 저장됩니다. 금액은 K USD, 건수·회사 수는 항목 단위를 따릅니다. 과거 분기도 분기 시작일로 지정할 수 있습니다.':kind==='definition'?'이 벤더에서 사용할 항목과 정의를 설정합니다.':'저장하면 이 벤더의 공유 화면에 반영됩니다.';
+ $('#editorHint').textContent=kind==='metric'?'금액은 K USD입니다. 신규·리뉴얼은 같은 인정 기준과 집계일로 입력해 주세요. 실적이 없으면 0, 미확인이면 빈칸으로 구분합니다. 과거 Q도 분기 시작일로 지정할 수 있습니다.':kind==='definition'?'이 벤더에서 사용할 항목과 정의를 설정합니다.':'저장하면 이 벤더의 공유 화면에 반영됩니다.';
  $('#editorFields').innerHTML=schema(kind).map(f=>fieldHTML(f,initial[f[0]])).join('');$('#extraFields').innerHTML='';
  if(kind==='promotion'){$('#extraFields').innerHTML='<div id="liveGoals"></div><button class="btn" id="addLiveGoal" type="button">+ 목표 추가</button>';for(const g of initial.goals||[{}])addGoal(g);}
  if(kind==='metric'&&old){$('#field-metricId').disabled=true;$('#field-quarterStart').readOnly=true;}
@@ -155,7 +163,7 @@ function validate(kind,p){
   if(!p.goals.length||p.goals.some(g=>!g.name||!g.rule||!Number.isFinite(g.target)||g.target<=0||(g.actual!==null&&(!Number.isFinite(g.actual)||g.actual<0))))throw Error('목표 지표·양수 목표·인정 기준을 입력해 주세요.');
  }
  if(kind==='action'){const period=C.quarter(p.quarterStart,settings());if(!period||period.start!==p.quarterStart)throw Error('분기 시작일이 회계연도 설정과 맞지 않습니다.');}
- if(kind==='lead'&&p.lastContact>now)throw Error('최근 접촉일은 오늘 이전으로 입력해 주세요.');
+ if(kind==='lead')window.VendorLeadImport.validate(p,now);
  if(kind==='request'){
   if(p.due<p.created||p.created>now)throw Error('요청일과 처리 기한을 확인해 주세요.');
   if(p.status!=='done'&&!p.next)throw Error('미완료 요청에는 다음 조치를 입력해 주세요.');
@@ -196,7 +204,7 @@ async function previewImport(e){importRows=[];$('#confirmImport').disabled=true;
 async function commitImport(){if(saving||!importRows.length)return;saving=true;$('#confirmImport').disabled=true;$('#importFile').disabled=true;let done=0;try{for(const row of importRows){await saveRecord('metric',row.id,row.p,row.parents);done++;$('#importError').textContent=`${done} / ${importRows.length}건 저장 중…`;}$('#importDialog').close();notice(`실적 ${done}건을 공유 저장소에 반영했습니다.`);importRows=[];render();}catch(error){importRows=importRows.slice(done);$('#importError').textContent=`${done}건 저장 완료. 남은 ${importRows.length}건은 저장하지 못했습니다. ${error.message}`;$('#confirmImport').disabled=!importRows.length;render();}finally{saving=false;$('#importFile').disabled=false;}}
 function bind(){
  $('#vendorSelect').innerHTML=Object.entries(C.vendors).map(([id,n])=>`<option value="${id}" ${id===slug?'selected':''}>${esc(n)}</option>`).join('');$('#vendorSelect').onchange=e=>location.href='vendor.html?vendor='+encodeURIComponent(e.target.value);
- $('#settingsButton').onclick=()=>openEditor('settings','main');$('#addMetric').onclick=()=>openEditor('definition');$('#enterMetric').onclick=()=>openEditor('metric');$('#historyMetric').onchange=()=>renderHistory(currentQ());$('#requestFilter').onchange=renderRequests;
+ $('#settingsButton').onclick=()=>openEditor('settings','main');$('#enterMetric').onclick=()=>openEditor('metric');$('#historyMetric').onchange=()=>renderHistory(currentQ());$('#requestFilter').onchange=renderRequests;
  $('#editorForm').onsubmit=submitEditor;$('#archiveButton').onclick=archive;
  $('#closeEditor').onclick=()=>{if(!saving)$('#editor').close();};$('#editor').addEventListener('cancel',e=>{if(saving)e.preventDefault();});
  $('#closeInfo').onclick=()=>$('#infoDialog').close();$('#closeImport').onclick=()=>{if(!saving)$('#importDialog').close();};$('#importDialog').addEventListener('cancel',e=>{if(saving)e.preventDefault();});
@@ -221,5 +229,6 @@ async function start(){
  await api('POST','/check');ingest(await api('GET','/state'));$('#authGate').hidden=true;$('#app').hidden=false;document.body.classList.remove('locked');render();
 }
 $('#loginUser').value=user;$('#loginForm').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;key=$('#loginKey').value.trim();user=$('#loginUser').value.trim();$('#loginError').textContent='';try{await start();try{localStorage.setItem('isd-cal-key',key);localStorage.setItem('isd-cal-user',user);}catch(_){}}catch(error){$('#loginError').textContent=error.message;}finally{b.disabled=false;}};
+leadUI=window.createVendorLeads({name,esc,records:()=>records.filter(r=>r.kind==='lead'),saving:()=>saving,refresh:async()=>{ingest(await api('GET','/state'));render();},today,saveBatch,notice});
 bind();if(key&&user)start().catch(error=>$('#loginError').textContent=error.message);
 })();

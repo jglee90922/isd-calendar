@@ -15,8 +15,11 @@ function quarter(date,settings,offset=0){
 }
 function index(vendorDocs,vendorId){
  const groups=new Map();for(const [id,doc] of Object.entries(vendorDocs||{})){
-  const r=doc?._dashboard;if(!r||r.schema!==1||r.vendorId!==vendorId||!r.kind||!r.recordId||!Array.isArray(r.parents))continue;
-  const key=r.kind+':'+r.recordId;if(!groups.has(key))groups.set(key,[]);groups.get(key).push({...r,id});
+  const batch=doc?._dashboardBatch;
+  const revisions=batch?.schema===1&&batch.vendorId===vendorId&&Array.isArray(batch.items)?batch.items.map(item=>({...item,schema:1,vendorId,savedAt:batch.savedAt,author:batch.author})):[doc?._dashboard];
+  for(const r of revisions){if(!r||r.schema!==1||r.vendorId!==vendorId||!r.kind||!r.recordId||!Array.isArray(r.parents))continue;
+   const key=r.kind+':'+r.recordId;if(!groups.has(key))groups.set(key,[]);groups.get(key).push({...r,id});
+  }
  }
  const records=[];for(const revisions of groups.values()){
   const parents=new Set(revisions.flatMap(r=>r.parents));const heads=revisions.filter(r=>!parents.has(r.id)).sort((a,b)=>(a.savedAt||'').localeCompare(b.savedAt||'')||a.id.localeCompare(b.id));
@@ -24,15 +27,19 @@ function index(vendorDocs,vendorId){
  }
  return records;
 }
-function calendarPromotions(vendorDocs,year=2026){
+function calendarPromotions(vendorDocs,year=null){
  const events=[];for(const [vendorId,name] of Object.entries(vendors))for(const r of index(vendorDocs,vendorId)){
   if(r.kind!=='promotion'||r.current.deleted)continue;const p=r.current.payload;
-  if(!validDate(p.start)||Number(p.start.slice(0,4))!==year)continue;
+  if(!validDate(p.start)||(year!==null&&Number(p.start.slice(0,4))!==year))continue;
   events.push({id:'dashboard-'+r.recordId,vendor:name,type:'promotion',title:p.title,date:p.start,end:p.end,month:Number(p.start.slice(5,7)),status:p.status||'planned',owner:p.owner||'',reward:p.scheme||'',goal:(p.goals||[]).map(g=>`${g.name}: ${g.actual??'미입력'} / ${g.target} ${g.unit}`).join(' · '),note:'벤더 상세 페이지에서 등록',dashboardVendor:vendorId,order:0});
  }return events;
 }
 const sameHeads=(a,b)=>JSON.stringify([...a].sort())===JSON.stringify([...b].sort());
 const amount=n=>typeof n==='number'&&Number.isFinite(n)?n:null;
+function dealTotal(rows){
+ const aligned=rows.length===2&&!!rows[0]?.asOf&&rows.every(r=>r?.asOf===rows[0].asOf);
+ return {metricId:'deal_total',asOf:aligned?rows[0].asOf:'',target:rows.length===2?total(rows,'target'):null,...Object.fromEntries(['actual','yoy','qoq'].map(k=>[k,aligned?total(rows,k):null]))};
+}
 function growth(current,base){if(amount(current)===null||amount(base)===null)return null;if(base===0)return null;return (current-base)/Math.abs(base)*100;}
 function total(rows,field){const nums=rows.map(x=>amount(x?.[field]));return nums.length&&nums.every(n=>n!==null)?nums.reduce((a,b)=>a+b,0):null;}
 function validateMetric(p,settings,today){
@@ -42,6 +49,6 @@ function validateMetric(p,settings,today){
  for(const k of ['actual','target','yoy','qoq'])if(p[k]!==null&&(amount(p[k])===null||p[k]<0))throw Error('금액·건수는 0 이상의 숫자로 입력해 주세요.');
  if(p.target===0)throw Error('타겟이 없으면 비워 두세요. 타겟은 0보다 커야 합니다.');
 }
-root.VendorDashboardCore={vendors,validDate,quarter,index,sameHeads,growth,total,validateMetric,calendarPromotions};
+root.VendorDashboardCore={vendors,validDate,quarter,index,sameHeads,growth,total,dealTotal,validateMetric,calendarPromotions};
 if(typeof module==='object')module.exports=root.VendorDashboardCore;
 })(typeof window==='object'?window:globalThis);

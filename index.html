@@ -72,7 +72,7 @@ form.ed .row2{grid-column:1/-1;display:flex;gap:6px;justify-content:flex-end}
 @media (max-width:700px){body{padding:18px 16px 40px}h1{font-size:26px}.sub p{font-size:14px}}
 @media print{.toolbar,.drawer,.overlay{display:none!important}body{padding:0}}
 @media (prefers-reduced-motion:reduce){.drawer{transition:none}}
-
+.month-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:18px 0}.month-toolbar input{font:inherit;border:1px solid var(--line);padding:8px;border-radius:4px}.month-toolbar span{font-size:14px;color:var(--muted)}#monthMessage{flex-basis:100%}@media print{.month-toolbar{display:none}}
 td.lbl.vl::after{content:none}
 .vendor-detail-link{display:block;width:fit-content;margin-top:5px;padding:4px 12px;border:1px solid #bfcddd;border-radius:4px;color:var(--accent);background:#fff;font-size:12px;font-weight:500;text-decoration:none}
 .vendor-detail-link:hover{background:var(--hover)}
@@ -86,22 +86,26 @@ td.lbl.vl::after{content:none}
 body.locked>*:not(.pwgate){display:none}
 .who{font-size:12.5px;color:var(--muted);cursor:pointer;text-decoration:underline dotted}
 </style>
-<script src="vendor-dashboard-core.js?v=live1"></script>
+<script src="vendor-dashboard-core.js?v=20260927"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <div id="gate" class="pwgate"><form autocomplete="off"><h2>인성디지탈 이벤트 캘린더</h2><p>팀 공통 비밀번호와 이름을 입력하세요. 이 브라우저에 기억됩니다.</p><label for="gKey">비밀번호</label><input id="gKey" type="password" required><label for="gUser">이름 · 직급 (변경 기록에 남습니다)</label><input id="gUser" placeholder="예: 홍길동 과장" required><div id="gErr" class="gerr" role="alert"></div><button class="primary" type="submit">들어가기</button></form></div>
 <h1>인성디지탈 이벤트 캘린더 — 2026년 9~12월</h1>
 <div class="sub"><p>인성디지탈 전략마케팅 · 벤더별 QBR · 프로모션 · EBC · Demo Room · 세미나를 월별 실행 계획으로 통합 관리 · 칸을 클릭해 이벤트 추가·수정, 벤더 이름을 클릭해 담당자·전략 수정 · 저장하면 모두에게 바로 반영</p>
 <div class="legend"><span><span class="tag">P</span>프로모션</span><span><span class="b">●</span> Confirmed</span><span><span class="b">○</span> Planned</span><span><span class="b">◆</span> Decision Gate</span></div></div>
 <div class="toolbar"><span class="status" id="st">연결 중…</span><span class="who" id="who" title="이름 바꾸기"></span><span class="sp"></span><button id="btnCsv" hidden>엑셀용 CSV 저장</button><button id="btnLog">변경 이력</button><button id="btnPrint">인쇄</button></div>
-<div class="wrap"><table id="grid" aria-label="벤더 월별 이벤트"><colgroup><col class="c0"><col class="cm"><col class="cm"><col class="cm"><col class="cm"></colgroup><thead><tr><th>Vendor / Activity</th><th>9월</th><th>10월</th><th>11월</th><th>12월</th></tr></thead><tbody></tbody></table></div>
+<div class="month-toolbar"><button id="prevMonths">← 이전 달</button><label>시작 월 <input id="monthStart" type="month" value="2026-09"></label><button id="nextMonths">다음 달 →</button><span id="monthRange"></span><button id="addMonth" class="primary">+ 월 추가</button><span id="monthMessage" role="status"></span></div><div class="wrap"><table id="grid" aria-label="벤더 월별 이벤트"><colgroup><col class="c0"><col class="cm"><col class="cm"><col class="cm"><col class="cm"></colgroup><thead><tr><th>Vendor / Activity</th><th>9월</th><th>10월</th><th>11월</th><th>12월</th></tr></thead><tbody></tbody></table></div>
 <div class="foot"></div>
 <div class="focus"><b>Focus</b> —</div>
 <div class="overlay" id="ov"></div>
 <aside class="drawer" id="dr" aria-label="상세 진행 상황"><div class="dh"><div><h2 id="dTitle">—</h2><div class="m" id="dSub"></div></div><button id="dClose" aria-label="닫기">닫기</button></div><div class="db" id="dBody"></div></aside>
+<script src="calendar-months.js?v=20260927"></script>
 <script>
 const ROWS=[];
 const DARK=new Set();
-const MONTHS=[9,10,11,12];
+const MC=window.CalendarMonthsCore;
+let viewStart='2026-09',monthRange={first:'2026-09',last:'2026-12'},MONTHS=[];
+function renderMonths(){monthRange=MC.range(events,vendors);viewStart=viewStart<monthRange.first?monthRange.first:viewStart>MC.add(monthRange.last,-3)?MC.add(monthRange.last,-3):viewStart;MONTHS=Array.from({length:4},(_,i)=>MC.add(viewStart,i));document.querySelector('h1').textContent='인성디지탈 이벤트 캘린더 — '+MC.label(MONTHS[0])+' ~ '+MC.label(MONTHS[3]);$('#grid thead tr').innerHTML='<th>Vendor / Activity</th>'+MONTHS.map(m=>`<th>${MC.label(m)}</th>`).join('');$('#monthStart').value=viewStart;$('#monthStart').min=monthRange.first;$('#monthStart').max=MC.add(monthRange.last,-3);$('#prevMonths').disabled=viewStart<=monthRange.first;$('#nextMonths').disabled=MONTHS[3]>=monthRange.last;$('#monthRange').textContent='누적 '+MC.label(monthRange.first)+' ~ '+MC.label(monthRange.last);}
+
 const SYM={done:"●",confirmed:"●",planned:"○",gate:"◆"};
 const SLABEL={done:"완료",confirmed:"확정",planned:"계획",gate:"결정 시점"};
 const FALLBACK=[];
@@ -113,16 +117,16 @@ const VFIELDS=[["head","지사장"],["channel","채널 담당"],["vmkt","벤더 
 let events=FALLBACK.map(e=>({...e})); let db=null, col=null, canWrite=false, downloads=null, cur=null;
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const fmtD=(d,e)=>{if(!d)return"";const f=x=>{const [y,m,dd]=x.split("-");return `${+m}/${+dd}`};return e&&e!==d?`${f(d)}~${f(e)}`:f(d)};
-function byCell(v,m){return events.filter(e=>e.vendor===v&&+e.month===m).sort((a,b)=>(a.date||"9")<(b.date||"9")?-1:(a.date||"9")>(b.date||"9")?1:(a.order||0)-(b.order||0))}
-function render(){const tb=$("#grid tbody");tb.innerHTML="";for(const v of ROWS){const tr=document.createElement("tr");if(DARK.has(v))tr.className="dark";tr.innerHTML=`<td class="lbl${VSLUG[v]?" vl":""}" ${VSLUG[v]?`tabindex="0" data-vendor="${esc(v)}"`:""}>${esc(v)}${VSLUG[v]?`<a class="vendor-detail-link" href="vendor.html?vendor=${encodeURIComponent(VSLUG[v])}" aria-label="${esc(v)} 상세보기">상세보기</a>`:""}</td>`+MONTHS.map(m=>{const list=byCell(v,m);const show=list.slice(0,2);return `<td class="cell" tabindex="0" data-v="${esc(v)}" data-m="${m}">${show.map(e=>`<span class="ev"><span class="sym">${SYM[e.status]||"○"}</span>${e.type==="promotion"?`<span class="tag">P</span>`:""}${e.date?`${fmtD(e.date,e.end)} `:""}${esc(e.title)}</span>`).join("")}${list.length>2?`<span class="ev more">+${list.length-2}건 더 보기 ›</span>`:""}${list.length===0?`<span class="more">—</span>`:""}</td>`}).join("");tb.appendChild(tr)}
+const fmtD=(d,e)=>{if(!d)return"";const f=x=>{const [y,m,dd]=x.split("-");return `${y}/${+m}/${+dd}`};return e&&e!==d?`${f(d)}~${f(e)}`:f(d)};
+function byCell(v,m){return events.filter(e=>e.vendor===v&&MC.eventMonth(e)===m).sort((a,b)=>(a.date||"9")<(b.date||"9")?-1:(a.date||"9")>(b.date||"9")?1:(a.order||0)-(b.order||0))}
+function render(){renderMonths();const tb=$("#grid tbody");tb.innerHTML="";for(const v of ROWS){const tr=document.createElement("tr");if(DARK.has(v))tr.className="dark";tr.innerHTML=`<td class="lbl${VSLUG[v]?" vl":""}" ${VSLUG[v]?`tabindex="0" data-vendor="${esc(v)}"`:""}>${esc(v)}${VSLUG[v]?`<a class="vendor-detail-link" href="vendor.html?vendor=${encodeURIComponent(VSLUG[v])}" aria-label="${esc(v)} 상세보기">상세보기</a>`:""}</td>`+MONTHS.map(m=>{const list=byCell(v,m);const show=list.slice(0,2);return `<td class="cell" tabindex="0" data-v="${esc(v)}" data-m="${m}">${show.map(e=>`<span class="ev"><span class="sym">${SYM[e.status]||"○"}</span>${e.type==="promotion"?`<span class="tag">P</span>`:""}${e.date?`${fmtD(e.date,e.end)} `:""}${esc(e.title)}</span>`).join("")}${list.length>2?`<span class="ev more">+${list.length-2}건 더 보기 ›</span>`:""}${list.length===0?`<span class="more">—</span>`:""}</td>`}).join("");tb.appendChild(tr)}
  if(cur)(cur.vendor?renderVendor():renderDrawer())}
 function openVendor(v){cur={vendor:v};$("#dTitle").textContent=v;$("#dSub").textContent="벤더 담당자 정보";$("#dr").classList.add("open");$("#ov").classList.add("open");renderVendor();$("#dClose").focus()}
 function renderVendor(){const v=cur.vendor;const s=VSLUG[v];const d=vendors[s]||{vendor:v};const b=$("#dBody");
  const sec=(title,fields,act)=>`<div class="item"><div class="t"><span>${title}</span></div><div class="meta">${fields.map(([k,l])=>`<span class="k">${l}</span><span>${esc(d[k]||"—")}</span>`).join("")}</div><div class="acts">${canWrite?`<button data-act="${act}">수정</button>`:""}</div></div>`;
  b.innerHTML=sec("담당자",VFIELDS,"vedit")+sec("하반기 전략 방향",SFIELDS,"sedit")+(canWrite?"":`<div class="ro">${db?"편집 권한이 없어 보기만 가능합니다.":"공유 저장소에 연결되지 않아 보기 전용입니다."}</div>`)}
 function vformHtml(d,F=VFIELDS){return `<form class="ed" data-vform="1">${F.map(([k,l])=>`<label>${l}</label>${["note","direction","actions","risk"].includes(k)?`<textarea name="${k}" id="v_${k}">${esc(d[k]||"")}</textarea>`:`<input name="${k}" id="v_${k}" value="${esc(d[k]||"")}">`}`).join("")}<div class="row2"><button type="button" data-act="vcancel">취소</button><button type="submit" class="primary">저장</button></div></form>`}
-function openCell(v,m){cur={v,m};$("#dTitle").textContent=v;$("#dSub").textContent=`${m}월 · 상세 진행 상황`;$("#dr").classList.add("open");$("#ov").classList.add("open");renderDrawer();$("#dClose").focus()}
+function openCell(v,m){cur={v,m};$("#dTitle").textContent=v;$("#dSub").textContent=`${MC.label(m)} · 상세 진행 상황`;$("#dr").classList.add("open");$("#ov").classList.add("open");renderDrawer();$("#dClose").focus()}
 function closeDrawer(){cur=null;$("#dr").classList.remove("open");$("#ov").classList.remove("open")}
 function renderDrawer(){const {v,m}=cur;const list=byCell(v,m);const b=$("#dBody");b.innerHTML="";
  if(!list.length)b.innerHTML=`<div class="empty">등록된 이벤트가 없습니다.</div>`;
@@ -138,13 +142,15 @@ $("#dBody").addEventListener("click",async ev=>{const btn=ev.target.closest("but
  if(act==="edit"){item.innerHTML=formHtml(e)} else if(act==="new"){item.innerHTML=formHtml({vendor:cur.v,month:cur.m})} else if(act==="cancel"){renderDrawer()}
  else if(act==="del"){if(!confirm("이 이벤트를 삭제할까요?"))return;try{await col.doc(id).delete();events=events.filter(x=>x.id!==id);render()}catch(err){alert("삭제 실패: "+(err.code||err.message))}}});
 $("#dBody").addEventListener("submit",async ev=>{ev.preventDefault();const f=ev.target;
- if(f.dataset.vform){const s=VSLUG[cur.vendor];const body={...(vendors[s]||{}),vendor:cur.vendor};for(const [k,v] of new FormData(f).entries())body[k]=v.trim();try{await vcol.doc(s).set(body);vendors[s]=body;renderVendor()}catch(err){alert("저장 실패: "+(err.code||err.message))}return}const item=f.closest(".item");const id=item.dataset.id;const fd=new FormData(f);const body={vendor:cur.v,month:cur.m};for(const [k,v] of fd.entries())body[k]=v.trim();
+ if(f.dataset.vform){const s=VSLUG[cur.vendor];const body={...(vendors[s]||{}),vendor:cur.vendor};for(const [k,v] of new FormData(f).entries())body[k]=v.trim();try{await vcol.doc(s).set(body);vendors[s]=body;renderVendor()}catch(err){alert("저장 실패: "+(err.code||err.message))}return}const item=f.closest(".item");const id=item.dataset.id;const fd=new FormData(f);const body={vendor:cur.v,yearMonth:cur.m,year:Number(cur.m.slice(0,4)),month:Number(cur.m.slice(5))};for(const [k,v] of fd.entries())body[k]=v.trim();
+ if(body.end&&body.date&&body.end<body.date){alert('종료일은 시작일 이후로 입력해 주세요.');return}
  try{ if(id){const old=events.find(x=>x.id===id);body.order=old.order||0;await col.doc(id).set(body);Object.assign(old,body)} else{body.order=Date.now();const ref=col.doc();await ref.set(body);events.push({...body,id:ref.id})} render()}catch(err){alert("저장 실패: "+(err.code||err.message))}});
-$("#grid").addEventListener("click",ev=>{if(ev.target.closest(".vendor-detail-link"))return;const lb=ev.target.closest("td.lbl.vl");if(lb){openVendor(lb.dataset.vendor);return}const td=ev.target.closest("td.cell");if(td)openCell(td.dataset.v,+td.dataset.m)});
-$("#grid").addEventListener("keydown",ev=>{if(ev.target.closest(".vendor-detail-link"))return;if(!(ev.key==="Enter"||ev.key===" "))return;const lb=ev.target.closest("td.lbl.vl");if(lb){ev.preventDefault();openVendor(lb.dataset.vendor);return}const td=ev.target.closest("td.cell");if(td){ev.preventDefault();openCell(td.dataset.v,+td.dataset.m)}});
+$("#grid").addEventListener("click",ev=>{if(ev.target.closest(".vendor-detail-link"))return;const lb=ev.target.closest("td.lbl.vl");if(lb){openVendor(lb.dataset.vendor);return}const td=ev.target.closest("td.cell");if(td)openCell(td.dataset.v,td.dataset.m)});
+$("#grid").addEventListener("keydown",ev=>{if(ev.target.closest(".vendor-detail-link"))return;if(!(ev.key==="Enter"||ev.key===" "))return;const lb=ev.target.closest("td.lbl.vl");if(lb){ev.preventDefault();openVendor(lb.dataset.vendor);return}const td=ev.target.closest("td.cell");if(td){ev.preventDefault();openCell(td.dataset.v,td.dataset.m)}});
 $("#dClose").onclick=closeDrawer;$("#ov").onclick=closeDrawer;document.addEventListener("keydown",e=>{if(e.key==="Escape"&&cur)closeDrawer()});
+$('#prevMonths').onclick=()=>{viewStart=MC.add(viewStart,-1);render()};$('#nextMonths').onclick=()=>{viewStart=MC.add(viewStart,1);render()};$('#monthStart').onchange=e=>{if(MC.valid(e.target.value)){viewStart=e.target.value;render()}};
 $("#btnPrint").onclick=()=>window.print();
-$("#btnCsv").onclick=async()=>{const cols=["vendor","month","type","status","title","date","end","place","owner","biz","goal","budget","progress","note","audience","condition","reward","funding","target_dr","result_dr"];const head=["벤더","월","유형","상태","제목","시작","종료","장소","마케팅 담당","사업부 담당","목표","예산·MDF","진행","비고","프로모션 대상","조건","보상","재원","목표 DR","결과 DR"];const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;const csv="﻿"+[head.map(q).join(",")].concat(events.slice().sort((a,b)=>ROWS.indexOf(a.vendor)-ROWS.indexOf(b.vendor)||a.month-b.month||(a.date||"9").localeCompare(b.date||"9")).map(e=>cols.map(c=>q(c==="status"?(SLABEL[e.status]||e.status):c==="type"?(e.type==="promotion"?"프로모션":"이벤트"):e[c])).join(","))).join("\r\n");try{await downloads.save({filename:"벤더_이벤트_캘린더_2026_9-12월.csv",data:csv})}catch(err){if(err.code!=="cancelled")alert("저장 실패: "+(err.code||err.message))}};
+$("#btnCsv").onclick=async()=>{const cols=["vendor","yearMonth","type","status","title","date","end","place","owner","biz","goal","budget","progress","note","audience","condition","reward","funding","target_dr","result_dr"];const head=["벤더","연월","유형","상태","제목","시작","종료","장소","마케팅 담당","사업부 담당","목표","예산·MDF","진행","비고","프로모션 대상","조건","보상","재원","목표 DR","결과 DR"];const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;const csv="﻿"+[head.map(q).join(",")].concat(events.slice().sort((a,b)=>ROWS.indexOf(a.vendor)-ROWS.indexOf(b.vendor)||MC.eventMonth(a).localeCompare(MC.eventMonth(b))||(a.date||"9").localeCompare(b.date||"9")).map(e=>cols.map(c=>q(c==="yearMonth"?MC.eventMonth(e):c==="status"?(SLABEL[e.status]||e.status):c==="type"?(e.type==="promotion"?"프로모션":"이벤트"):e[c])).join(","))).join("\r\n");try{await downloads.save({filename:"벤더_이벤트_캘린더_전체.csv",data:csv})}catch(err){if(err.code!=="cancelled")alert("저장 실패: "+(err.code||err.message))}};
 render();
 // --- 실시간 공유 모드 (Supabase Edge Function API + Realtime broadcast) ---
 document.body.classList.add("locked");
@@ -165,6 +171,8 @@ async function refresh(){const s=await api("GET","/state");applyConfig(s.config)
 col={doc(id){const ref={id:id||("n"+Date.now().toString(36)),async set(body){await api("PUT","/events/"+encodeURIComponent(ref.id),body)},async delete(){await api("DELETE","/events/"+encodeURIComponent(id))}};return ref}};
 vcol={doc(s){return{async set(body){await api("PUT","/vendors/"+encodeURIComponent(s),body)}}}};
 downloads={async save({filename,data}){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([data],{type:"text/plain;charset=utf-8"}));a.download=filename;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}};
+let addingMonth=false;
+$("#addMonth").onclick=async()=>{if(addingMonth)return;addingMonth=true;$("#addMonth").disabled=true;try{const s=await api("GET","/state");if(Object.keys(s.vendors).length>=900)throw Error("저장 공간 확장이 필요합니다. 관리자에게 문의해 주세요.");const endMonth=MC.add(MC.range(s.events.concat(window.VendorDashboardCore.calendarPromotions(s.vendors)),s.vendors).last,1),id="cal_month_"+crypto.randomUUID().replaceAll("-","");await api("PUT","/vendors/"+id,{title:MC.label(endMonth)+" 캘린더 추가",dashboard_action:"월 추가",detailSummary:MC.label(endMonth)+"까지 누적 · 기존 일정 유지",_calendarMonths:{schema:1,endMonth,savedAt:new Date().toISOString()}});viewStart=MC.add(endMonth,-3);await refresh();$("#monthMessage").textContent=MC.label(endMonth)+"을 추가했습니다. 모든 사용자에게 반영됩니다.";}catch(e){$("#monthMessage").textContent=e.message;}finally{addingMonth=false;$("#addMonth").disabled=false;}};
 $("#btnCsv").hidden=false;
 $("#who").onclick=()=>{const n=prompt("변경 기록에 남길 이름 · 직급",USER);if(n===null)return;USER=n.trim();try{localStorage.setItem("isd-cal-user",USER)}catch(_){}setStatus()};
 const FL={dashboard_action:"작업",detailSummary:"변경 내용",detailBefore:"이전 내용",title:"제목",status:"상태",type:"유형",date:"시작",end:"종료",place:"장소",owner:"마케팅",biz:"사업부",goal:"목표",budget:"예산·MDF",progress:"진행",note:"비고",audience:"대상",condition:"조건",reward:"보상",funding:"재원",target_dr:"목표 DR",result_dr:"결과 DR",month:"월",vendor:"벤더"};
@@ -175,13 +183,13 @@ function logItem(r){const d=r.detail||{};const ch=d.changes||{};const where=[d.v
  if(r.action==="create")body=Object.entries(ch).filter(([k,[a,b]])=>!SKIP.has(k)&&!k.startsWith("_")&&b!=="").map(([k,[a,b]])=>`<span class="k">${FL[k]||k}</span><span>${esc(fv(k,b))}</span>`).join("");
  else if(r.action==="update"){const rows=Object.entries(ch).filter(([k])=>k!=="order"&&!k.startsWith("_"));body=rows.length?rows.map(([k,[a,b]])=>`<span class="k">${FL[k]||k}</span><span>${esc(fv(k,a))} → <b>${esc(fv(k,b))}</b></span>`).join(""):`<span class="k">변경</span><span>내용 동일 (변경 없음)</span>`}
  else if(r.action==="delete"&&d.snapshot){const sn=d.snapshot;body=[["date",fmtD(sn.date,sn.end)],["owner",sn.owner],["status",sn.status]].filter(x=>x[1]).map(([k,v])=>`<span class="k">${FL[k]||k}</span><span>${esc(fv(k,v))}</span>`).join("")}
- return `<div class="item"><div class="t"><span>${esc(r.title||r.doc_id)}</span><span class="pill ${r.action==="delete"?"gate":r.action==="create"?"confirmed":""}">${esc(d.changes?.dashboard_action?.[1]||ALABEL[r.action]||r.action)}</span></div><div class="meta"><span class="k">시각</span><span>${fmtTs(r.ts)} · ${esc(r.who||"—")}</span>${where?`<span class="k">위치</span><span>${esc(where)}${r.coll==="vendors"?(d.changes?._dashboard?" · 벤더 상세":" · 벤더 담당자·전략"):""}</span>`:""}${body}</div></div>`}
+ return `<div class="item"><div class="t"><span>${esc(r.title||r.doc_id)}</span><span class="pill ${r.action==="delete"?"gate":r.action==="create"?"confirmed":""}">${esc(d.changes?.dashboard_action?.[1]||ALABEL[r.action]||r.action)}</span></div><div class="meta"><span class="k">시각</span><span>${fmtTs(r.ts)} · ${esc(r.who||"—")}</span>${where?`<span class="k">위치</span><span>${esc(where)}${r.coll==="vendors"?((d.changes?._dashboard||d.changes?._dashboardBatch)?" · 벤더 상세":" · 벤더 담당자·전략"):""}</span>`:""}${body}</div></div>`}
 async function loadLog(){const b=$("#dBody");try{const rows=await api("GET","/log");if(!cur||!cur.log)return;b.innerHTML=rows.length?rows.map(logItem).join(""):'<div class="empty">이력이 없습니다.</div>'}catch(err){b.innerHTML=`<div class="empty">${esc(err.message)}</div>`}}
 $("#btnLog").onclick=()=>{cur={log:true};$("#dTitle").textContent="변경 이력";$("#dSub").textContent="최근 60건 · 누가 무엇을 어떻게 바꿨는지 · 실시간 갱신";$("#dr").classList.add("open");$("#ov").classList.add("open");$("#dBody").innerHTML='<div class="empty">불러오는 중…</div>';loadLog()};
 async function start(){canWrite=true;document.body.classList.remove("locked");$("#gate").hidden=true;
  try{await refresh()}catch(err){$("#st").textContent="불러오기 실패: "+err.message;return}
  const params=new URLSearchParams(location.search),v=Object.keys(VSLUG).find(n=>VSLUG[n]===params.get("editVendor")),e=events.find(x=>x.id===params.get("event"));
- if(v)openVendor(v);else if(e)openCell(e.vendor,+e.month);
+ if(v)openVendor(v);else if(e)openCell(e.vendor,MC.eventMonth(e));
  try{const sb=window.supabase.createClient(SB_URL,SB_KEY,{realtime:{params:{eventsPerSecond:5}}});sb.channel("cal-changes").on("broadcast",{event:"changed"},()=>{refresh().catch(()=>{})}).subscribe(st=>{if(st==="SUBSCRIBED")setStatus();else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT")setStatus("실시간 연결 끊김 · 30초마다 새로고침")})}catch(_){setStatus("실시간 미연결 · 30초마다 새로고침")}
  setInterval(()=>{refresh().catch(()=>{})},30000);document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh().catch(()=>{})})}
 $("#gate form").onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;$("#gErr").textContent="";KEY=$("#gKey").value.trim();USER=$("#gUser").value.trim();
