@@ -64,7 +64,13 @@ function render(){
  if(!state)return;$('#vendorName').textContent=name;document.title=name+' | 인성디지탈';$('#syncStatus').textContent=`공유 저장 연결 · ${user} · ${lastLoaded} 확인`;
  const q=currentQ();$('#fyLabel').textContent=q?q.label:'회계연도 설정 필요';$('#fyDates').textContent=q?`${q.start} — ${q.end} · 종료까지 ${Math.max(0,Math.round((Date.parse(q.end)-Date.parse(today()))/86400000))}일`:(state.vendors[slug]?.fy||'벤더의 FY 시작월을 설정해 주세요.');
  const conflicts=records.filter(r=>r.conflict);$('#conflictNotice').hidden=!conflicts.length;$('#conflictNotice').innerHTML=conflicts.length?`동시에 수정된 항목 ${conflicts.length}건이 있습니다. 두 내용 모두 보관되어 있습니다. ${conflicts.map(r=>`<button class="btn" data-conflict="${esc(r.key)}">${esc(kindNames[r.kind])} 내용 확인</button>`).join('')}`:'';
- renderMetrics(q);renderAnnual(q);renderHistory(q);renderPartners(q);renderPromotions();renderLeads();renderActions(q);renderRequests();renderContacts();
+ const overview=renderOverview();renderMetrics(q);renderAnnual(q,overview);renderHistory(q);renderPartners(q);renderPromotions();renderLeads();renderActions(q);renderRequests();renderContacts();
+}
+function renderOverview(){
+ const safe=(kind,id)=>{const r=record(kind,id);return r&&!r.conflict&&!r.current.deleted?r.current.payload:null;};
+ const config=safe('settings','main'),q=C.quarter(today(),config);
+ const model=window.VendorOverview.model({date:today(),settings:config,metrics:list('metric').filter(r=>!r.conflict).map(r=>r.current.payload),annual:q?safe('annual',q.fyStart):null,partners:q?safe('partners',q.start):null});
+ $('#overviewContent').innerHTML=window.VendorOverview.render(model);return model;
 }
 function renderMetrics(q){
  $('#metricHint').textContent=q?`${name} · ${q.label} 누적 · ${settings()?.performanceBasis||'실적 인정 기준 미설정'}`:'벤더 설정에서 FY 시작월과 실적 인정 기준을 등록해 주세요.';
@@ -75,9 +81,11 @@ function renderMetrics(q){
  $('#legacyMetrics').hidden=!legacy.length;
  $('#legacyMetricsContent').innerHTML=legacy.length?`<p>이전에 저장한 항목을 보존합니다. 신규·리뉴얼 합계에는 포함하지 않습니다.</p><div class="scroll"><table><thead><tr><th>항목</th><th>분기 시작</th><th>기준일</th><th>타겟</th><th>실적</th></tr></thead><tbody>${legacy.map(r=>{const p=r.current.payload;return `<tr><td>${esc(p.metricId)}</td><td>${esc(p.quarterStart)}</td><td>${esc(p.asOf)}</td><td>${fmt(p.target)}</td><td>${fmt(p.actual)}</td></tr>`}).join('')}</tbody></table></div>`:'';
 }
-function renderAnnual(q){
- $('#annualHeading').textContent=q?q.fy+' 연간 벤더 타겟':'연간 벤더 타겟';const p=q?data('annual',q.fyStart):null;
- $('#annualBasis').textContent=p?`${comparisonMetrics().find(m=>m.id===p.metricId)?.name||p.metricId} · ${p.asOf||'기준일 미입력'} 기준`:q?`${q.fyStart} — ${q.fyEnd}`:'회계연도 설정 후 입력할 수 있습니다.';
+function renderAnnual(q,overview){
+ $('#annualHeading').textContent=q?q.fy+' 연간 벤더 타겟':'연간 벤더 타겟';let p=q?data('annual',q.fyStart):null;
+ const derived=(!p||p.metricId==='deal_total')&&overview.fy.source==='quarters';
+ if(derived)p={...p,metricId:'deal_total',mode:overview.fy.mode,target:overview.fy.target,actual:overview.fy.actual,asOf:overview.fy.asOf};
+ $('#annualBasis').textContent=p?`${comparisonMetrics().find(m=>m.id===p.metricId)?.name||p.metricId} · ${p.asOf||'기준일 미입력'} 기준${derived?' · Q1부터 이번 Q까지 자동 합산':''}`:q?`${q.fyStart} — ${q.fyEnd}`:'회계연도 설정 후 입력할 수 있습니다.';
  if(!p){$('#annualContent').innerHTML=empty('연간 타겟과 누적 실적이 아직 입력되지 않았습니다.');return;}
  const unit=metrics().find(m=>m.id===p.metricId)?.unit||'K USD',items=p.mode==='set'?[['연간 타겟',fmt(p.target)+' '+unit],['FY 누적 실적',fmt(p.actual)+' '+unit],['달성률',pct(p.actual,p.target)],['잔여 타겟',p.actual===null?'—':fmt(Math.max(0,p.target-p.actual))+' '+unit]]:[['연간 타겟',p.mode==='none'?'없음':'확인 중'],['FY 누적 실적',fmt(p.actual)+' '+unit]];
  $('#annualContent').innerHTML=`<div class="annual-metrics">${items.map(([k,v])=>`<div><small>${k}</small><strong>${esc(v)}</strong></div>`).join('')}</div>`;
@@ -128,7 +136,7 @@ function openEditor(kind,id=null,seed={},resolve=false){
  const initial={...{asOf:inputQ&&inputQ.end<today()?inputQ.end:today(),created:today(),quarterStart:q?.start,metricId:kind==='annual'?'deal_total':primary()?.id,unit:'K USD',priority:'보통',status:kind==='request'?'received':'planned',stage:'new'},...old,...seed};
  editing={kind,id,parents:r?.heads.map(h=>h.id)||[],old:old||{},exists:!!old};
  $('#editorTitle').textContent=(kindNames[kind]||kind)+(old?' 수정':' 입력');
- $('#editorHint').textContent=kind==='metric'?'금액은 K USD입니다. 신규·리뉴얼은 같은 인정 기준과 집계일로 입력해 주세요. 실적이 없으면 0, 미확인이면 빈칸으로 구분합니다. 과거 Q도 분기 시작일로 지정할 수 있습니다.':kind==='definition'?'이 벤더에서 사용할 항목과 정의를 설정합니다.':'저장하면 이 벤더의 공유 화면에 반영됩니다.';
+ $('#editorHint').textContent=kind==='metric'?'금액은 K USD입니다. 신규·리뉴얼은 같은 인정 기준과 집계일로 입력해 주세요. 실적이 없으면 0, 미확인이면 빈칸으로 구분합니다. 과거 Q도 분기 시작일로 지정할 수 있습니다.':kind==='annual'?'금액은 K USD입니다. 전체 합계의 누적 실적을 비우면, Q1부터 이번 Q까지 신규·리뉴얼이 모두 등록된 경우 자동 합산합니다. 지난 Q는 분기 말 기준이어야 합니다.':kind==='definition'?'이 벤더에서 사용할 항목과 정의를 설정합니다.':'저장하면 이 벤더의 공유 화면에 반영됩니다.';
  $('#editorFields').innerHTML=schema(kind).map(f=>fieldHTML(f,initial[f[0]])).join('');$('#extraFields').innerHTML='';
  if(kind==='promotion'){$('#extraFields').innerHTML='<div id="liveGoals"></div><button class="btn" id="addLiveGoal" type="button">+ 목표 추가</button>';for(const g of initial.goals||[{}])addGoal(g);}
  if(kind==='metric'&&old){$('#field-metricId').disabled=true;$('#field-quarterStart').readOnly=true;}
