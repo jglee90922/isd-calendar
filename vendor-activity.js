@@ -31,19 +31,19 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const fmt=n=>n===null?'—':n.toLocaleString('en-US',{maximumFractionDigits:1});
 const footer=(id,label,note)=>`<div class="overview-card-footer"><span>${esc(note)}</span><a href="#${id}" aria-label="${label} 상세보기">상세보기 →</a></div>`;
 const stats=rows=>`<dl class="activity-stats">${rows.map(([label,n])=>`<div><dt>${label}</dt><dd>${fmt(n)}</dd></div>`).join('')}</dl>`;
-function render(m,q){
- const p=m.promotions,l=m.leads,a=m.actions,r=m.requests;
- const periodLabel={active:'진행 중',upcoming:'예정',ended:'종료',undated:'기간 미정'};
- return `<div class="overview-grid activity-grid">
- <article class="overview-card" aria-labelledby="ovPromoTitle"><div class="overview-card-head"><h3 id="ovPromoTitle">프로모션 현황</h3><span>전체 등록 ${fmt(p.total)}건</span></div><div class="activity-hero"><strong>${fmt(p.active)}<small>건 진행 중</small></strong></div>
- ${stats([['예정',p.upcoming],['종료',p.ended],['기간 미정',p.undated]])}<ul class="activity-preview">${p.featured.map(x=>`<li><span class="tag">${periodLabel[x.period]}</span><span>${esc(x.title)}</span></li>`).join('')||'<li class="muted">등록된 프로모션이 없습니다.</li>'}</ul>${footer('promotions','프로모션','캘린더와 등록 프로모션 · 기간 기준')}</article>
- <article class="overview-card" aria-labelledby="ovLeadTitle"><div class="overview-card-head"><h3 id="ovLeadTitle">Lead follow-up 현황</h3><span>리드 추적</span></div><div class="activity-hero"><strong>${fmt(l.total)}<small>건 전체 리드</small></strong><span class="${l.overdue?'attention':''}">후속 기한 경과 ${fmt(l.overdue)}건</span></div>
- <dl class="activity-stages">${Object.entries(l.stages).map(([id,label])=>`<div><dt>${label}</dt><dd><span class="stage-track" aria-hidden="true"><i style="width:${l.total?l.counts[id]/l.total*100:0}%"></i></span><b>${fmt(l.counts[id])}</b></dd></div>`).join('')}</dl>${footer('leads','리드 추적','전체 등록 리드 · 엑셀 일괄 관리')}</article>
- <article class="overview-card" aria-labelledby="ovActionTitle"><div class="overview-card-head"><h3 id="ovActionTitle">액션플랜 이행 현황</h3><span>${esc(q?q.label:'FY 설정 필요')}</span></div><div class="activity-hero"><strong>${a.rate===null?'—':fmt(a.rate)+'%'}<small>이행률</small></strong><span>${q?`전체 ${a.total}건 중 ${a.done}건 완료`:'FY 설정 후 이번 Q 과제를 집계합니다.'}</span></div>
- <div class="overview-track" role="img" aria-label="액션플랜 이행률 ${a.rate===null?'집계 없음':fmt(a.rate)+'%'}"><span style="width:${a.rate??0}%"></span></div>${stats([['예정',q?a.planned:null],['진행 중',q?a.working:null],['보류',q?a.hold:null]])}<p class="activity-status ${a.overdue?'attention':''}">${q?`기한 경과 ${a.overdue}건`:'이번 Q 미설정'}</p>${footer('actions','액션플랜','이번 Q 과제 기준')}</article>
- <article class="overview-card" aria-labelledby="ovRequestTitle"><div class="overview-card-head"><h3 id="ovRequestTitle">커뮤니케이션</h3><span>사업부 & 마케팅</span></div><div class="activity-hero"><strong>${fmt(r.open)}<small>건 미완료 요청</small></strong><span>전체 ${fmt(r.total)}건 · 완료 ${fmt(r.done)}건</span></div>
- ${stats([['사업부',r.teams.business],['마케팅',r.teams.marketing],['미분류',r.teams.unclassified]])}<div class="activity-request-note"><span>회신 대기 <b>${fmt(r.waiting)}건</b></span><span class="${r.overdue?'attention':''}">기한 경과 <b>${fmt(r.overdue)}건</b></span></div>${footer('requests','커뮤니케이션','요청 구분별 미완료 · 대응 이력 관리')}</article>
- </div>`;
+function render(m){
+ const p=m.promotions,l=m.leads;
+ return `<article class="overview-card" aria-labelledby="ovPromoTitle"><div class="overview-card-head"><h3 id="ovPromoTitle">프로모션 현황</h3><span>전체 ${fmt(p.total)}건</span></div><div class="activity-hero"><strong>${fmt(p.active)}<small>건 진행 중</small></strong></div>
+ ${stats([['예정',p.upcoming],['종료',p.ended],['기간 미정',p.undated]])}<p class="compact-note featured-promotion">${esc(p.featured[0]?.title||'등록된 프로모션이 없습니다.')}</p>${footer('promotions','프로모션','캘린더 프로모션 포함')}</article>
+ <article class="overview-card" aria-labelledby="ovLeadTitle"><div class="overview-card-head"><h3 id="ovLeadTitle">Lead follow-up</h3><span>전체 리드</span></div><div class="activity-hero"><strong>${fmt(l.total)}<small>건</small></strong></div>
+ <dl class="lead-mini-stages">${Object.entries(l.stages).map(([id,label])=>`<div><dt>${label}</dt><dd>${fmt(l.counts[id])}</dd></div>`).join('')}</dl>${footer('leads','리드 추적',`후속 기한 경과 ${fmt(l.overdue)}건`)}</article>`;
 }
-root.VendorActivity={model,render,teams,team,promotionState};if(typeof module==='object')module.exports=root.VendorActivity;
+function shortcuts(m,q,mdf){
+ const a=m.actions,r=m.requests;
+ return `<nav class="overview-shortcuts" aria-label="추가 관리 현황">
+ <a class="overview-shortcut" href="#actions" aria-label="액션플랜 이행 현황 상세보기"><div><span>액션플랜 이행 현황</span><strong>${a.rate===null?'—':fmt(a.rate)+'%'}<small>${q?`${a.done} / ${a.total}건 완료`:'FY 설정 필요'}</small></strong></div><span class="shortcut-tail">상세보기 →</span></a>
+ <a class="overview-shortcut" href="#requests" aria-label="커뮤니케이션 현황 상세보기"><div><span>커뮤니케이션 현황</span><strong>${fmt(r.open)}<small>건 미완료 · 회신 대기 ${fmt(r.waiting)}건</small></strong></div><span class="shortcut-tail">상세보기 →</span></a>
+ <a class="overview-shortcut" href="#mdf" aria-label="MDF 현황 상세보기"><div><span>MDF 현황</span><strong>${mdf?.count?fmt(mdf.spent):'—'}<small>${!q?'FY 설정 필요':mdf?.count?'K USD 집행 · '+mdf.count+'건':'등록된 MDF 없음'}</small></strong></div><span class="shortcut-tail">상세보기 →</span></a></nav>`;
+}
+root.VendorActivity={model,render,shortcuts,teams,team,promotionState};if(typeof module==='object')module.exports=root.VendorActivity;
 })(typeof window==='object'?window:globalThis);
