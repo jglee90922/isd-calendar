@@ -7,7 +7,7 @@ const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'num
 const fmt=n=>typeof n==='number'&&Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionDigits:2}):'—';
 const pct=(n,t)=>typeof n==='number'&&typeof t==='number'&&t>0?`${fmt(n/t*100)}%`:'—';
 const uid=()=>crypto.randomUUID().replaceAll('-','');
-let key='',user='',state=null,records=[],editing=null,saving=false,refreshing=false,lastLoaded='',importRows=[],leadUI=null;
+let key='',user='',state=null,records=[],editing=null,saving=false,refreshing=false,lastLoaded='',importRows=[],leadUI=null,dataUI=null;
 try{key=localStorage.getItem('isd-cal-key')||'';user=localStorage.getItem('isd-cal-user')||'';}catch(_){}
 const requestStates={received:'접수',working:'진행 중',waiting:'회신 대기',done:'완료'},actionStates={planned:'예정',working:'진행 중',hold:'보류',done:'완료'},leadStates={new:'미접촉',contacted:'접촉',qualified:'유효 리드',opportunity:'영업 기회',won:'수주',lost:'종료'};
 const kindNames={settings:'벤더 설정',definition:'실적 항목',metric:'분기 실적',annual:'연간 타겟',partners:'파트너 현황',promotion:'프로모션',lead:'리드',action:'액션 플랜',request:'커뮤니케이션 요청'};
@@ -48,13 +48,14 @@ async function saveRecord(kind,recordId,payload,parents,deleted=false){
  try{await api('PUT','/vendors/'+id,body);}catch(error){const latestState=await api('GET','/state').catch(()=>null);if(!latestState?.vendors?.[id])throw error;}
  ingest(await api('GET','/state'));if(!state.vendors[id])throw Error('저장 결과를 아직 확인하지 못했습니다. 새로고침 후 다시 확인해 주세요.');return id;
 }
-async function saveBatch(items,onProgress){
+async function saveBatch(items,onProgress,label='리드 엑셀',settingsHeads=null){
  if(saving)throw Error('다른 저장이 끝난 뒤 다시 시도해 주세요.');saving=true;
  try{for(let start=0;start<items.length;start+=100){
   const chunk=items.slice(start,start+100);ingest(await api('GET','/state'));
+  if(settingsHeads&&!C.sameHeads(record('settings','main')?.heads.map(h=>h.id)||[],settingsHeads))throw Error('벤더 FY 설정이 변경되었습니다. 데이터를 다시 검토해 주세요.');
   if(Object.keys(state.vendors).length>=900)throw Error('저장 공간 확장이 필요합니다. 관리자에게 문의해 주세요.');
-  for(const item of chunk){const latest=record(item.kind,item.recordId);if(!C.sameHeads(latest?.heads.map(h=>h.id)||[],item.parents))throw Error('미리보기 이후 수정된 리드가 있습니다. 미리보기를 다시 확인해 주세요.');}
-  const id='vd_'+slug+'_'+uid(),body={vendor:name,title:`${name} · 리드 엑셀 ${chunk.length}건`,dashboard_action:'일괄 저장',detailSummary:`신규 ${chunk.filter(r=>!r.parents.length).length}건 · 수정 ${chunk.filter(r=>r.parents.length).length}건`,_dashboardBatch:{schema:1,vendorId:slug,savedAt:new Date().toISOString(),author:user,items:chunk.map(r=>({...r,deleted:false}))}};
+  for(const item of chunk){const latest=record(item.kind,item.recordId);if(!C.sameHeads(latest?.heads.map(h=>h.id)||[],item.parents))throw Error('미리보기 이후 수정된 데이터가 있습니다. 다시 확인해 주세요.');}
+  const id='vd_'+slug+'_'+uid(),body={vendor:name,title:`${name} · ${label} ${chunk.length}건`,dashboard_action:'일괄 저장',detailSummary:`신규 ${chunk.filter(r=>!r.parents.length).length}건 · 수정 ${chunk.filter(r=>r.parents.length).length}건`,_dashboardBatch:{schema:1,vendorId:slug,savedAt:new Date().toISOString(),author:user,items:chunk.map(r=>({...r,deleted:false}))}};
   try{await api('PUT','/vendors/'+id,body);}catch(error){const check=await api('GET','/state').catch(()=>null);if(!check?.vendors?.[id])throw error;}
   ingest(await api('GET','/state'));if(!state.vendors[id])throw Error('저장 결과를 확인하지 못했습니다. 최신 내용을 확인해 주세요.');onProgress(Math.min(start+100,items.length));
  }}finally{saving=false;render();}
@@ -64,7 +65,7 @@ function render(){
  if(!state)return;$('#vendorName').textContent=name;document.title=name+' | 인성디지탈';$('#syncStatus').textContent=`공유 저장 연결 · ${user} · ${lastLoaded} 확인`;
  const q=currentQ();$('#fyLabel').textContent=q?q.label:'회계연도 설정 필요';$('#fyDates').textContent=q?`${q.start} — ${q.end} · 종료까지 ${Math.max(0,Math.round((Date.parse(q.end)-Date.parse(today()))/86400000))}일`:(state.vendors[slug]?.fy||'벤더의 FY 시작월을 설정해 주세요.');
  const conflicts=records.filter(r=>r.conflict);$('#conflictNotice').hidden=!conflicts.length;$('#conflictNotice').innerHTML=conflicts.length?`동시에 수정된 항목 ${conflicts.length}건이 있습니다. 두 내용 모두 보관되어 있습니다. ${conflicts.map(r=>`<button class="btn" data-conflict="${esc(r.key)}">${esc(kindNames[r.kind])} 내용 확인</button>`).join('')}`:'';
- const overview=renderOverview();renderMetrics(q);renderAnnual(q,overview);renderHistory(q);renderPartners(q);renderPromotions();renderLeads();renderActions(q);renderRequests();renderContacts();
+ const overview=renderOverview();renderMetrics(q);renderAnnual(q,overview);renderHistory(q);renderPartners(q);renderPromotions();renderLeads();renderActions(q);renderRequests();renderContacts();dataUI?.render();
 }
 function renderOverview(){
  const safe=(kind,id)=>{const r=record(kind,id);return r&&!r.conflict&&!r.current.deleted?r.current.payload:null;};
@@ -242,5 +243,8 @@ async function start(){
 }
 $('#loginUser').value=user;$('#loginForm').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;key=$('#loginKey').value.trim();user=$('#loginUser').value.trim();$('#loginError').textContent='';try{await start();try{localStorage.setItem('isd-cal-key',key);localStorage.setItem('isd-cal-user',user);}catch(_){}}catch(error){$('#loginError').textContent=error.message;}finally{b.disabled=false;}};
 leadUI=window.createVendorLeads({name,esc,records:()=>records.filter(r=>r.kind==='lead'),saving:()=>saving,refresh:async()=>{ingest(await api('GET','/state'));render();},today,saveBatch,notice});
+dataUI=window.createVendorDataEntry({name,esc,records:()=>records,settings,settingsHeads:()=>record('settings','main')?.heads.map(h=>h.id)||[],today,user:()=>user,saving:()=>saving,
+ refresh:async()=>{ingest(await api('GET','/state'));render();},notice,
+ save:(entries,onProgress,heads)=>saveBatch(entries.map(e=>({kind:e.kind,recordId:e.recordId,parents:e.parents,payload:e.payload})),onProgress,'대시보드 입력표',heads)});
 bind();if(key&&user)start().catch(error=>$('#loginError').textContent=error.message);
 })();
