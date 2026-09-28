@@ -38,12 +38,13 @@ function render(m){
  <article class="overview-card" aria-labelledby="ovLeadTitle"><div class="overview-card-head"><h3 id="ovLeadTitle">Lead follow-up</h3><span>전체 리드</span></div><div class="activity-hero"><strong>${fmt(l.total)}<small>건</small></strong></div>
  <dl class="lead-mini-stages">${Object.entries(l.stages).map(([id,label])=>`<div><dt>${label}</dt><dd>${fmt(l.counts[id])}</dd></div>`).join('')}</dl>${footer('leads','리드 추적',`후속 기한 경과 ${fmt(l.overdue)}건`)}</article>`;
 }
-function shortcuts(m,q,mdf){
+function shortcuts(m,q,mdf,rebate){
  const a=m.actions,r=m.requests;
  return `<nav class="overview-shortcuts" aria-label="추가 관리 현황">
  <a class="overview-shortcut" href="#actions" aria-label="액션플랜 이행 현황 상세보기"><div><span>액션플랜 이행 현황</span><strong>${a.rate===null?'—':fmt(a.rate)+'%'}<small>${q?`${a.done} / ${a.total}건 완료`:'FY 설정 필요'}</small></strong></div><span class="shortcut-tail">상세보기 →</span></a>
  <a class="overview-shortcut" href="#requests" aria-label="커뮤니케이션 현황 상세보기"><div><span>커뮤니케이션 현황</span><strong>${fmt(r.open)}<small>건 미완료 · 회신 대기 ${fmt(r.waiting)}건</small></strong></div><span class="shortcut-tail">상세보기 →</span></a>
- <a class="overview-shortcut" href="#mdf" aria-label="MDF 현황 상세보기"><div><span>MDF 현황</span><strong>${mdf?.count?fmt(mdf.spent):'—'}<small>${!q?'FY 설정 필요':mdf?.count?'K USD 집행 · '+mdf.count+'건':'등록된 MDF 없음'}</small></strong></div><span class="shortcut-tail">상세보기 →</span></a></nav>`;
+ <a class="overview-shortcut" href="#mdf" aria-label="MDF 현황 상세보기"><div><span>MDF 현황</span><strong>${mdf?.count?fmt(mdf.spent):'—'}<small>${!q?'FY 설정 필요':mdf?.count?'K USD 집행 · '+mdf.count+'건':'등록된 MDF 없음'}</small></strong></div><span class="shortcut-tail">상세보기 →</span></a>
+ <a class="overview-shortcut" href="#rebate" aria-label="리베이트 현황 상세보기"><div><span>리베이트 현황</span><strong>${rebate?.count?fmt(rebate.confirmed):'—'}<small>${!q?'FY 설정 필요':rebate?.count?'K USD 확정 · '+rebate.count+'건':'등록된 리베이트 없음'}</small></strong></div><span class="shortcut-tail">상세보기 →</span></a></nav>`;
 }
 root.VendorActivity={model,render,shortcuts,teams,team,promotionState};if(typeof module==='object')module.exports=root.VendorActivity;
 })(typeof window==='object'?window:globalThis);
