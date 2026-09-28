@@ -5,7 +5,7 @@ const C=typeof module==='object'?require('./vendor-dashboard-core.js'):root.Vend
 const number=v=>typeof v==='number'&&Number.isFinite(v)&&v>=0?v:null;
 const ratio=(a,b)=>number(a)!==null&&number(b)!==null&&b>0?a/b*100:null;
 const cap=v=>v===null?0:Math.max(0,Math.min(v,100));
-function model({date,settings,metrics=[],annual=null,partners=null}){
+function model({date,settings,metrics=[],annual=null,partners=null,booking=null}){
  const q=C.quarter(date,settings),byKey=new Map(metrics.map(p=>[p.metricId+':'+p.quarterStart,p]));
  const pair=start=>['deal_new','deal_renewal'].map(id=>byKey.get(id+':'+start)||{});
  const parts=q?pair(q.start):[{},{}],current=C.dealTotal(parts),achievement=ratio(current.actual,current.target);
@@ -17,7 +17,7 @@ function model({date,settings,metrics=[],annual=null,partners=null}){
  const fyActual=manualValid?annual.actual:automatic?C.total(quarters,'actual'):null;
  const target=annualMatches&&annual.mode==='set'&&number(annual.target)>0?annual.target:null;
  const registered=number(partners?.registered),active=number(partners?.active);
- return {q,current,achievement,progress:cap(achievement),newActual:number(parts[0].actual),renewalActual:number(parts[1].actual),renewalShare:ratio(number(current.actual)!==null?parts[1].actual:null,current.actual),
+ return {q,booking,current,achievement,progress:cap(achievement),newActual:number(parts[0].actual),renewalActual:number(parts[1].actual),renewalShare:ratio(number(current.actual)!==null?parts[1].actual:null,current.actual),
   mixNote:number(current.actual)!==null?(current.actual===0?'집계 실적 0 · 구성 비율 없음':current.asOf+' 기준'):parts[0].asOf&&parts[1].asOf&&parts[0].asOf!==parts[1].asOf?'신규·리뉴얼 집계 기준일을 맞춰 주세요.':'신규·리뉴얼 실적 입력 필요',
   partner:{registered,active,inactive:registered!==null&&active!==null&&active<=registered?registered-active:null,rate:active!==null&&registered!==null&&active<=registered?ratio(active,registered):null,newActive:number(partners?.newActive),reactivated:number(partners?.reactivated),asOf:partners?.asOf||'',rule:partners?.rule||''},
   fy:{actual:fyActual,target,achievement:ratio(fyActual,target),mode:annualMatches?annual.mode:'pending',source:manualValid?'manual':automatic?'quarters':'missing',asOf:manualValid?annual.asOf:automatic?quarters.at(-1).asOf:'',completed,expected:quarters.length,metricMismatch:!!annual&&!annualMatches}
@@ -28,7 +28,7 @@ const percent=v=>v===null?'—':fmt(v)+'%';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function changes(current,base,label){const n=C.growth(current,base);return `<span>${label} <b>${n===null?'—':`${n>0?'+':n<0?'−':''}${fmt(Math.abs(n))}%`}</b></span>`;}
 function render(m){
- const q=m.q,p=m.partner,fy=m.fy,actual=m.current.actual,target=m.current.target;
+ const q=m.q,p=m.partner,fy=m.fy,b=m.booking,actual=m.current.actual,target=m.current.target;
  const ringNote=!q?'FY 설정 필요':number(actual)===null?'실적 입력 필요':number(target)===null?'분기 타겟 미입력':achievementLabel(m.achievement);
  const quarterLabel=q?q.label:'이번 Q',fyLabel=q?q.fy:'현재 FY';
  const source=fy.source==='manual'?'FY 누적 입력값':fy.source==='quarters'?'Q1부터 이번 Q까지 자동 합산':fy.metricMismatch?'전체 합계 기준의 FY 누적 입력 필요':q?`${fy.completed} / ${fy.expected}개 Q 집계 완료 · FY 누적 입력 가능`:'FY 설정 후 집계';
@@ -41,7 +41,7 @@ function render(m){
  <article class="overview-card" aria-labelledby="ovPartnerTitle"><div class="overview-card-head"><h3 id="ovPartnerTitle">파트너 현황</h3><span>이번 Q</span></div><div class="overview-hero"><span>Active partner</span><strong>${fmt(p.active)}<small>개사</small></strong><span>등록 ${fmt(p.registered)}개사 중 활성</span></div>
   <div class="overview-bar-caption"><span>활성 비율</span><b>${percent(p.rate)}</b></div><div class="overview-track" role="img" aria-label="파트너 활성 비율 ${percent(p.rate)}"><span style="width:${cap(p.rate)}%"></span></div>
   <dl class="overview-partners"><div><dt>비활성</dt><dd>${fmt(p.inactive)}</dd></div><div><dt>신규 활성</dt><dd>${fmt(p.newActive)}</dd></div><div><dt>재활성</dt><dd>${fmt(p.reactivated)}</dd></div></dl>
-  <div class="overview-card-footer"><span>${esc(p.asOf?p.asOf+' 기준':'파트너 현황 미입력')}</span><a href="#partners" aria-label="파트너 현황 상세보기">상세보기 →</a></div></article>
+  ${b?.count?`<div class="partner-booking-summary">입력 파트너 부킹<b>${fmt(b.total)} K USD</b><span>${b.valid?`부킹 발생 ${fmt(b.active)} / 입력 ${b.count}개사 · ${esc(b.asOf)}`:'집계일·중복·동시 수정 확인 필요'}</span></div>`:''}<div class="overview-card-footer"><span>${esc(p.asOf?p.asOf+' 기준':'파트너 현황 미입력')}</span><a href="#partners" aria-label="파트너 현황 상세보기">상세보기 →</a></div></article>
  <article class="overview-card" aria-labelledby="ovRenewalTitle"><div class="overview-card-head"><h3 id="ovRenewalTitle">전체 실적 중 리뉴얼</h3><span>이번 Q</span></div><div class="overview-hero"><span>리뉴얼 비중</span><strong>${percent(m.renewalShare)}</strong><span>전체 ${fmt(actual)} K USD 중</span></div>
   <div class="overview-mix" role="img" aria-label="신규 ${fmt(m.newActual)} K USD, 리뉴얼 ${fmt(m.renewalActual)} K USD, 리뉴얼 비중 ${percent(m.renewalShare)}">${m.renewalShare===null?'':`<span class="mix-new" style="width:${100-cap(m.renewalShare)}%"></span><span class="mix-renewal" style="width:${cap(m.renewalShare)}%"></span>`}</div>
   <dl class="overview-pair mix-legend"><div><dt><i class="mix-new"></i>신규</dt><dd>${fmt(m.newActual)}<small>K USD</small></dd></div><div><dt><i class="mix-renewal"></i>리뉴얼</dt><dd>${fmt(m.renewalActual)}<small>K USD</small></dd></div></dl>
