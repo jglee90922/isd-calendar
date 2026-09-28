@@ -28,6 +28,8 @@ root.createVendorDataEntry=function(ctx){
    if(k==='kind')return `<td class="data-kind">${D.kinds[r.kind]}${r.version?'<small>기존</small>':'<small>신규</small>'}</td>`;
    if(!D.fields[r.kind].includes(k))return '<td class="data-unused">—</td>';
    const def=defs.find(d=>d[0]===k),value=display(r.kind,k,r[k]),opts=D.options(r.kind,k),attr=`data-row="${i}" data-field="${k}" aria-label="${i+1}행 ${esc(def[1])}"`;
+   if(r.kind==='request'&&k==='owner')return `<td class="data-kind">${esc(value||'미지정')}<small>요청 목록에서 본인 등록</small></td>`;
+   if(r.kind==='request'&&k==='status'&&!r.version)return `<td><select ${attr}>${value&&value!=='접수'?`<option selected>${esc(value)}</option>`:''}<option value="접수" ${!value||value==='접수'?'selected':''}>접수</option></select></td>`;
    if(opts)return `<td><select ${attr}><option value="">선택</option>${opts.map(([id,label])=>`<option value="${esc(label)}" ${value===label?'selected':''}>${esc(label)}</option>`).join('')}</select></td>`;
    return `<td><input ${attr} type="text" ${def[2]==='number'?'inputmode="decimal"':''} value="${esc(value)}" placeholder="${def[2]==='date'?'YYYY-MM-DD':''}" maxlength="4000"></td>`;
   }).join('')}${r.kind==='partnerBooking'?`<td class="data-total" data-total="${i}">${bookingTotal(r)}</td>`:''}<td class="data-row-actions">${r.kind==='promotion'?`<button type="button" data-goal-row="${i}" class="btn">목표 추가</button>`:''}<button type="button" data-remove-row="${i}" class="btn">표에서 제외</button></td></tr>`).join('')||`<tr><td colspan="${keys.length+2+(allowed.includes('partnerBooking')?1:0)}" class="live-empty">입력할 행을 추가하거나 엑셀 파일을 불러오세요.</td></tr>`}</tbody></table>`;
@@ -70,7 +72,8 @@ root.createVendorDataEntry=function(ctx){
   if(e.kind==='partners')return `${e.recordId} · ${changed('등록','registered')} / ${changed('활성','active')}개사 · ${changed('신규 활성','newActive')} / ${changed('재활성','reactivated')} · 기준일 ${p.asOf}`;
   if(e.kind==='promotion')return `${p.title} · ${p.start}~${p.end} · 목표 ${b?(b.goals||[]).length+' → ':''}${p.goals.length}개 · ${p.goals.map(g=>`${g.name} ${fmt(g.actual)}/${g.target} ${g.unit}`).join(' / ')}`;
   if(e.kind==='lead')return `${p.name} · ${D.states.lead[p.stage]} · ${p.owner} · ${p.next||''}`;
-  return `${p.title} · ${D.states[e.kind][p.status]} · ${p.owner} · 기한 ${p.due} · ${e.kind==='request'?p.history?.at(-1)?.text||'':p.criteria}`;
+  if(e.kind==='request')return `${p.title} · ${D.states.request[p.status]} · 마케팅 ${p.marketingContact||'미지정'} · 대응 ${p.owner||'미지정'} · 기한 ${p.due||'미정'} · ${p.history?.at(-1)?.text||''}`;
+  return `${p.title} · ${D.states[e.kind][p.status]} · ${p.owner} · 기한 ${p.due} · ${p.criteria}`;
  }
  async function check(){
   if(busy||ctx.saving())return;busy=true;$('#dataControls').inert=true;$('#dataTable').inert=true;$('#dataCheck').disabled=true;setError('');review=null;$('#dataSave').disabled=true;

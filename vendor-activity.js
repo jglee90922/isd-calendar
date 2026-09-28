@@ -2,7 +2,7 @@
 (function(root){
 'use strict';
 const C=typeof module==='object'?require('./vendor-dashboard-core.js'):root.VendorDashboardCore;
-const teams={business:'사업부',marketing:'마케팅',unclassified:'미분류'};
+const teams={business:'사업부',marketing:'마케팅',vendor:'벤더',unclassified:'미분류'};
 const team=p=>Object.hasOwn(teams,p.requestTeam)?p.requestTeam:'unclassified';
 const late=(p,date)=>p.status!=='done'&&C.validDate(p.due)&&p.due<date;
 function promotionState(p,date){
