@@ -7,10 +7,10 @@ const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'num
 const fmt=n=>typeof n==='number'&&Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionDigits:2}):'—';
 const pct=(n,t)=>typeof n==='number'&&typeof t==='number'&&t>0?`${fmt(n/t*100)}%`:'—';
 const uid=()=>crypto.randomUUID().replaceAll('-','');
-let key='',user='',state=null,records=[],editing=null,saving=false,refreshing=false,lastLoaded='',importRows=[],leadUI=null,dataUIs=[];
+let key='',user='',state=null,records=[],editing=null,saving=false,refreshing=false,lastLoaded='',importRows=[],leadUI=null,dataUIs=[],quarterUI=null;
 try{key=localStorage.getItem('isd-cal-key')||'';user=localStorage.getItem('isd-cal-user')||'';}catch(_){}
-const R=window.VendorRequests,requestStates=R.states,actionStates={planned:'예정',working:'진행 중',hold:'보류',done:'완료'},leadStates={new:'미접촉',contacted:'접촉',qualified:'유효 리드',opportunity:'영업 기회',won:'수주',lost:'종료'};
-const kindNames={settings:'벤더 설정',definition:'실적 항목',metric:'분기 실적',annual:'연간 타겟',partners:'파트너 현황',partnerBooking:'파트너 부킹',promotion:'프로모션',lead:'리드',action:'액션 플랜',request:'커뮤니케이션 요청',mdf:'MDF',rebate:'리베이트'};
+const P=window.VendorQuarterCore,R=window.VendorRequests,requestStates=R.states,actionStates={planned:'예정',working:'진행 중',hold:'보류',done:'완료'},leadStates={new:'미접촉',contacted:'접촉',qualified:'유효 리드',opportunity:'영업 기회',won:'수주',lost:'종료'};
+const kindNames={quarterPerformance:'분기 주차 실적',settings:'벤더 설정',definition:'실적 항목',metric:'분기 실적',annual:'연간 타겟',partners:'파트너 현황',partnerBooking:'파트너 부킹',promotion:'프로모션',lead:'리드',action:'액션 플랜',request:'커뮤니케이션 요청',mdf:'MDF',rebate:'리베이트'};
 async function api(method,path,body){
  let r;try{r=await fetch(API+path,{method,cache:'no-store',headers:{'x-cal-key':encodeURIComponent(key),'x-cal-user':encodeURIComponent(user),'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});}catch(_){throw Error('네트워크 연결을 확인해 주세요. 입력 내용은 저장되지 않았습니다.');}
  if(r.status===401){lock();throw Error('비밀번호를 다시 확인해 주세요.');}if(!r.ok)throw Error(`저장소 연결 오류 (${r.status}). 잠시 후 다시 시도해 주세요.`);return r.status===204?null:r.json();
@@ -28,7 +28,7 @@ const comparisonMetrics=()=>[totalMetric,...metrics()];
 const metricRecord=(id,start)=>record('metric',`${id}:${start}`);
 const metricData=(id,start)=>data('metric',`${id}:${start}`);
 const primary=()=>metrics()[0];
-const performanceData=(id,start)=>id==='deal_total'?C.dealTotal(metrics().map(m=>metricData(m.id,start)||{})):metricData(id,start);
+const performanceData=(id,start)=>{const p=P.effective(records,start);return id==='deal_total'?p.total:p.parts.find(r=>r.metricId===id);};
 const empty=(text,button='')=>`<div class="live-empty">${esc(text)}${button}</div>`;
 const editButton=r=>`<button class="btn" data-edit-kind="${r.kind}" data-record="${esc(r.recordId)}">${r.conflict?'동시 수정 확인':r.kind==='request'?'대응 관리':'수정'}</button>`;
 const newButton=(kind,label)=>`<button class="btn" data-new="${kind}">${label}</button>`;
@@ -36,6 +36,7 @@ const overdue=p=>p.status!=='done'&&p.due&&p.due<today();
 function growthHTML(v,b,label){const g=C.growth(v,b);return `<div class="metric-change ${g===null?'neutral':g<0?'down':'up'}"><span>${label}</span><b>${g===null?(b===0?'산출 불가 · 기준 0':'비교 자료 없음'):`${g>0?'↑ +':g<0?'↓ −':''}${fmt(Math.abs(g))}%`}</b></div>`;}
 function notice(text,error=false){const el=$('#saveNotice');el.textContent=text;el.hidden=false;el.classList.toggle('is-error',error);}
 async function refresh(){if(refreshing||saving||!key)return;refreshing=true;try{ingest(await api('GET','/state'));render();}catch(e){if(state)$('#syncStatus').textContent='갱신 실패 · 마지막 확인 '+lastLoaded;else $('#loginError').textContent=e.message;}finally{refreshing=false;}}
+function checkQuarterSource(p){if(record('quarterPerformance',p.quarterStart)&&!record('quarterPerformance',p.quarterStart).current.deleted)throw Error('이 분기는 주차별 실적으로 관리 중입니다. 분기 실적 상세의 주차 표에서 수정해 주세요.');}
 function checkPartnerDuplicate(p,id,items=[]){const D=window.VendorDataCore,key=D.partnerKey(p),changed=new Map(items.filter(e=>e.kind==='partnerBooking').map(e=>[e.recordId,e.payload]));if(list('partnerBooking').some(r=>r.recordId!==id&&D.partnerKey(changed.get(r.recordId)||r.current.payload)===key)||items.some(e=>e.kind==='partnerBooking'&&e.recordId!==id&&D.partnerKey(e.payload)===key))throw Error('같은 분기의 파트너가 이미 있습니다. 기존 행을 수정해 주세요.');}
 async function saveRecord(kind,recordId,payload,parents,deleted=false){
  // Always re-read the record. Every write creates a unique revision document,
@@ -44,6 +45,7 @@ async function saveRecord(kind,recordId,payload,parents,deleted=false){
  if(!C.sameHeads(heads,parents))throw Error('다른 사람이 이 항목을 수정했습니다. 입력 내용은 그대로 두었습니다. 닫고 최신 내용을 확인한 뒤 다시 저장해 주세요.');
  if(Object.keys(state.vendors).length>=900)throw Error('저장 공간 확장이 필요합니다. 관리자에게 문의해 주세요. 기존 자료는 유지됩니다.');
  const id='vd_'+slug+'_'+uid(),revision={schema:1,vendorId:slug,kind,recordId,parents:[...heads],payload,deleted,savedAt:new Date().toISOString(),author:user};
+ if(kind==='metric'&&!deleted)checkQuarterSource(payload);
  if(kind==='partnerBooking'&&!deleted)checkPartnerDuplicate(payload,recordId);
  const summary=summaryText(kind,payload);
  const body={vendor:name,title:`${name} · ${kindNames[kind]||kind} · ${payload.title||payload.name||payload.metricId||''}`.slice(0,120),dashboard_action:deleted?'보관':latest?'수정':'추가',detailSummary:summary,detailBefore:latest?summaryText(kind,latest.current.payload):"",_dashboard:revision};
@@ -56,23 +58,23 @@ async function saveBatch(items,onProgress,label='리드 엑셀',settingsHeads=nu
   const chunk=items.slice(start,start+100);ingest(await api('GET','/state'));
   if(settingsHeads&&!C.sameHeads(record('settings','main')?.heads.map(h=>h.id)||[],settingsHeads))throw Error('벤더 FY 설정이 변경되었습니다. 데이터를 다시 검토해 주세요.');
   if(Object.keys(state.vendors).length>=900)throw Error('저장 공간 확장이 필요합니다. 관리자에게 문의해 주세요.');
-  for(const item of chunk){if(item.kind==='partnerBooking')checkPartnerDuplicate(item.payload,item.recordId,items);const latest=record(item.kind,item.recordId);if(!C.sameHeads(latest?.heads.map(h=>h.id)||[],item.parents))throw Error('미리보기 이후 수정된 데이터가 있습니다. 다시 확인해 주세요.');}
+  for(const item of chunk){if(item.kind==='metric')checkQuarterSource(item.payload);if(item.kind==='partnerBooking')checkPartnerDuplicate(item.payload,item.recordId,items);const latest=record(item.kind,item.recordId);if(!C.sameHeads(latest?.heads.map(h=>h.id)||[],item.parents))throw Error('미리보기 이후 수정된 데이터가 있습니다. 다시 확인해 주세요.');}
   const id='vd_'+slug+'_'+uid(),body={vendor:name,title:`${name} · ${label} ${chunk.length}건`,dashboard_action:'일괄 저장',detailSummary:`신규 ${chunk.filter(r=>!r.parents.length).length}건 · 수정 ${chunk.filter(r=>r.parents.length).length}건`,_dashboardBatch:{schema:1,vendorId:slug,savedAt:new Date().toISOString(),author:user,items:chunk.map(r=>({...r,deleted:false}))}};
   try{await api('PUT','/vendors/'+id,body);}catch(error){const check=await api('GET','/state').catch(()=>null);if(!check?.vendors?.[id])throw error;}
   ingest(await api('GET','/state'));if(!state.vendors[id])throw Error('저장 결과를 확인하지 못했습니다. 최신 내용을 확인해 주세요.');onProgress(Math.min(start+100,items.length));
  }}finally{saving=false;render();}
 }
-function summaryText(kind,p){if(kind==='metric')return `${p.metricId} · ${p.quarterStart} · 실적 ${fmt(p.actual)} / 타겟 ${fmt(p.target)}`;if(kind==='request')return `${p.title} · ${requestStates[p.status]} · 마케팅 ${p.marketingContact||'미지정'} · 대응 ${p.owner||'미지정'} · 기한 ${p.due||'미정'} · ${p.history?.at(-1)?.text||''}`;if(kind==='promotion')return `${p.title} · ${p.start}~${p.end} · ${(p.goals||[]).map(g=>`${g.name} ${fmt(g.actual)}/${fmt(g.target)} ${g.unit}`).join(' / ')}`;return Object.entries(p).filter(([k,v])=>!['history','goals'].includes(k)&&v!==''&&v!==null).map(([k,v])=>`${fieldLabels[k]||k}: ${typeof v==='object'?JSON.stringify(v):v}`).join(' · ').slice(0,1500);}
+function summaryText(kind,p){if(kind==='quarterPerformance'){const m=P.summarize(p);return `${p.quarterStart} · ${p.asOf} 기준 · ${p.rows.map(r=>r.name).join('/')} · 분기 실적 ${fmt(m.total.actual)} / 타겟 ${fmt(m.total.target)} K USD`;}if(kind==='metric')return `${p.metricId} · ${p.quarterStart} · 실적 ${fmt(p.actual)} / 타겟 ${fmt(p.target)}`;if(kind==='request')return `${p.title} · ${requestStates[p.status]} · 마케팅 ${p.marketingContact||'미지정'} · 대응 ${p.owner||'미지정'} · 기한 ${p.due||'미정'} · ${p.history?.at(-1)?.text||''}`;if(kind==='promotion')return `${p.title} · ${p.start}~${p.end} · ${(p.goals||[]).map(g=>`${g.name} ${fmt(g.actual)}/${fmt(g.target)} ${g.unit}`).join(' / ')}`;return Object.entries(p).filter(([k,v])=>!['history','goals'].includes(k)&&v!==''&&v!==null).map(([k,v])=>`${fieldLabels[k]||k}: ${typeof v==='object'?JSON.stringify(v):v}`).join(' · ').slice(0,1500);}
 function render(){
  if(!state)return;$('#vendorName').textContent=name;document.title=name+' | 인성디지탈';$('#syncStatus').textContent=`공유 저장 연결 · ${user} · ${lastLoaded} 확인`;
  const q=currentQ();$('#fyLabel').textContent=q?q.label:'회계연도 설정 필요';$('#fyDates').textContent=q?`${q.start} — ${q.end} · 종료까지 ${Math.max(0,Math.round((Date.parse(q.end)-Date.parse(today()))/86400000))}일`:(state.vendors[slug]?.fy||'벤더의 FY 시작월을 설정해 주세요.');
  const conflicts=records.filter(r=>r.conflict);$('#conflictNotice').hidden=!conflicts.length;$('#conflictNotice').innerHTML=conflicts.length?`동시에 수정된 항목 ${conflicts.length}건이 있습니다. 두 내용 모두 보관되어 있습니다. ${conflicts.map(r=>`<button class="btn" data-conflict="${esc(r.key)}">${esc(kindNames[r.kind])} 내용 확인</button>`).join('')}`:'';
- const overview=renderOverview();renderMetrics(q);renderAnnual(q,overview);renderHistory(q);renderPartners(q);renderPromotions();renderLeads();renderActions(q);renderRequests();renderMdf();renderRebate();renderContacts();dataUIs.forEach(ui=>ui.render());
+ const overview=renderOverview();renderMetrics(q);quarterUI?.render();renderAnnual(q,overview);renderHistory(q);renderPartners(q);renderPromotions();renderLeads();renderActions(q);renderRequests();renderMdf();renderRebate();renderContacts();dataUIs.forEach(ui=>ui.render());
 }
 function renderOverview(){
  const safe=(kind,id)=>{const r=record(kind,id);return r&&!r.conflict&&!r.current.deleted?r.current.payload:null;};
  const config=safe('settings','main'),q=C.quarter(today(),config);
- const model=window.VendorOverview.model({date:today(),settings:config,metrics:list('metric').filter(r=>!r.conflict).map(r=>r.current.payload),annual:q?safe('annual',q.fyStart):null,partners:q?safe('partners',q.start):null,booking:q?window.VendorDataCore.bookingSummary(records,q.start):null});
+ const model=window.VendorOverview.model({date:today(),settings:config,performance:list('quarterPerformance').map(r=>P.effective(records,r.recordId)),metrics:list('metric').filter(r=>!r.conflict).map(r=>r.current.payload),annual:q?safe('annual',q.fyStart):null,partners:q?safe('partners',q.start):null,booking:q?window.VendorDataCore.bookingSummary(records,q.start):null});
  const payloads=kind=>list(kind).filter(r=>!r.conflict).map(r=>r.current.payload);
  const activity=window.VendorActivity.model({date:today(),q,leads:payloads('lead'),actions:payloads('action'),requests:payloads('request'),promotions:payloads('promotion'),calendarPromotions:state.events.filter(e=>e.vendor===name&&e.type==='promotion')});
  $('#overviewContent').innerHTML=window.VendorOverview.render(model,window.VendorActivity.render(activity));
@@ -81,7 +83,7 @@ function renderOverview(){
  $('#activityContent').innerHTML=window.VendorActivity.shortcuts(activity,q,mdf,rebate);return model;
 }
 function renderMetrics(q){
- $('#metricHint').textContent=q?`${name} · ${q.label} 누적 · ${settings()?.performanceBasis||'실적 인정 기준 미설정'}`:'벤더 설정에서 FY 시작월과 실적 인정 기준을 등록해 주세요.';
+ $('#metricHint').textContent=q?'월별·주차별 실적과 분기 타겟을 함께 관리합니다. 금액 단위는 K USD입니다.':'벤더 설정에서 FY 시작월과 실적 인정 기준을 등록해 주세요.';
  const rows=metrics().map(m=>({...m,...(q?metricData(m.id,q.start):{})})),sum=C.dealTotal(rows);
  const all=[...rows,{...totalMetric,...sum}];
  $('#liveMetrics').innerHTML=`<div class="scroll"><table class="booking-table"><thead><tr><th>딜 구분</th><th>분기 타겟 (K USD)</th><th>실적 (K USD)</th><th>달성률</th><th>YoY</th><th>QoQ</th><th>집계 기준일 / 입력</th></tr></thead><tbody>${all.map(d=>`<tr class="${d.id==='deal_total'?'booking-total':''}"><th>${d.name}</th><td>${fmt(d.target)}</td><td>${fmt(d.actual)}</td><td>${pct(d.actual,d.target)}</td><td>${growthHTML(d.actual,d.yoy,'YoY')}</td><td>${growthHTML(d.actual,d.qoq,'QoQ')}</td><td>${d.id==='deal_total'?(sum.asOf?esc(sum.asOf)+' · 자동 합계':'동일 기준일의 신규·리뉴얼 입력 필요'):`${esc(d.asOf||'미입력')}<br><button class="btn" data-value="${d.id}">실적 입력</button>`}</td></tr>`).join('')}</tbody></table></div>`;
@@ -100,7 +102,7 @@ function renderAnnual(q,overview){
 }
 function renderHistory(q){const defs=comparisonMetrics(),selection=$('#historyMetric').value||'deal_total';$('#historyMetric').innerHTML=defs.map(m=>`<option value="${esc(m.id)}" ${m.id===selection?'selected':''}>${esc(m.name)} (${esc(m.unit)})</option>`).join('');const m=defs.find(d=>d.id===$('#historyMetric').value);
  if(!q||!m){$('#historyContent').innerHTML=empty('회계연도와 실적 지표를 설정하면 5개 분기를 비교할 수 있습니다.');return;}
- $('#historyContent').innerHTML=`<table><thead><tr><th>분기</th><th>기간</th><th>타겟 (${esc(m.unit)})</th><th>실적 (${esc(m.unit)})</th><th>달성률</th><th>집계 기준일</th><th>입력</th></tr></thead><tbody>${[-4,-3,-2,-1,0].map(offset=>{const p=C.quarter(today(),settings(),offset),v=performanceData(m.id,p.start)||{};return `<tr><td>${esc(p.label)}${offset===0?' · 현재':''}</td><td>${p.start}~${p.end}</td><td>${fmt(v.target)}</td><td>${fmt(v.actual)}</td><td>${pct(v.actual,v.target)}</td><td>${esc(v.asOf||'미입력')}</td><td>${m.id==='deal_total'?metrics().map(x=>`<button class="btn" data-value="${x.id}" data-period="${p.start}">${x.name} 입력</button>`).join(' '):`<button class="btn" data-value="${esc(m.id)}" data-period="${p.start}">입력</button>`}</td></tr>`}).join('')}</tbody></table>`;
+ $('#historyContent').innerHTML=`<table><thead><tr><th>분기</th><th>기간</th><th>타겟 (${esc(m.unit)})</th><th>실적 (${esc(m.unit)})</th><th>달성률</th><th>집계 기준일</th><th>입력</th></tr></thead><tbody>${[-4,-3,-2,-1,0].map(offset=>{const p=C.quarter(today(),settings(),offset),v=performanceData(m.id,p.start)||{};return `<tr><td>${esc(p.label)}${offset===0?' · 현재':''}</td><td>${p.start}~${p.end}</td><td>${fmt(v.target)}</td><td>${fmt(v.actual)}</td><td>${pct(v.actual,v.target)}</td><td>${esc(v.asOf||'미입력')}</td><td>${record('quarterPerformance',p.start)&&!record('quarterPerformance',p.start).current.deleted?`<button class="btn" data-quarter-view="${p.start}">주차 실적 보기</button>`:m.id==='deal_total'?metrics().map(x=>`<button class="btn" data-value="${x.id}" data-period="${p.start}">${x.name} 입력</button>`).join(' '):`<button class="btn" data-value="${esc(m.id)}" data-period="${p.start}">입력</button>`}</td></tr>`}).join('')}</tbody></table>`;
 }
 function renderPartners(q){renderPartnerBookings(q);const p=q?data('partners',q.start):null;if(!p){$('#partnerContent').innerHTML=empty('이번 Q의 파트너 현황이 아직 입력되지 않았습니다.');return;}const inactive=p.registered!==null&&p.active!==null?p.registered-p.active:null;$('#partnerContent').innerHTML=`<div class="partner-stats">${[['등록 파트너',p.registered,'개사'],['Active partner',p.active,'개사'],['비활성 파트너',inactive,'개사'],['활성 비율',p.registered>0&&p.active!==null?p.active/p.registered*100:null,'%']].map(([label,n,u])=>`<div class="partner-stat"><span>${label}</span><strong>${fmt(n)}<small>${u}</small></strong></div>`).join('')}</div><p>${esc(p.rule)} · ${esc(p.asOf)} 기준</p><p class="muted">이번 Q 신규 활성 ${fmt(p.newActive)}개사 · 재활성 ${fmt(p.reactivated)}개사</p>`;}
 function renderPartnerBookings(q){
@@ -159,7 +161,8 @@ function editorSubmitLabel(){return editing?.kind==='request'?(editing.exists?'�
 function requireQuarter(){if(!currentQ()){openEditor('settings','main');$('#editorHint').textContent='실적·타겟·파트너·액션을 등록하기 전에 FY 시작월과 실적 인정 기준을 저장해 주세요.';return false;}return true;}
 function openEditor(kind,id=null,seed={},resolve=false){
  if(saving)return;
- if(['metric','annual','partners','partnerBooking','action','mdf','rebate'].includes(kind)&&!requireQuarter())return;
+ if(kind==='metric'){const start=seed.quarterStart||record(kind,id)?.current.payload.quarterStart||currentQ()?.start;if(start&&record('quarterPerformance',start)&&!record('quarterPerformance',start).current.deleted){quarterUI.choose(start);location.hash='performance';notice('이 분기는 주차별 실적으로 관리 중입니다. 주차별 실적 수정 버튼을 이용하세요.');return;}}
+ if(['metric','annual','partners','partnerBooking','action','mdf','rebate','quarterPerformance'].includes(kind)&&!requireQuarter())return;
  if(['metric','annual'].includes(kind)&&!metrics().length){openEditor('definition');return;}
  const q=currentQ();if(!id){if(kind==='settings')id='main';else if(kind==='annual')id=q.fyStart;else if(kind==='partners')id=q.start;else if(kind==='metric')id=(seed.metricId||primary()?.id)+':'+(seed.quarterStart||q.start);else id=uid();}
  const r=record(kind,id);if(r?.conflict&&!resolve){showConflict(r);return;}
@@ -175,7 +178,7 @@ function openEditor(kind,id=null,seed={},resolve=false){
  $('#editorFields').innerHTML=schema(kind).map(f=>fieldHTML(f,initial[f[0]])).join('');$('#extraFields').innerHTML='';
  if(kind==='promotion'){$('#extraFields').innerHTML='<div id="liveGoals"></div><button class="btn" id="addLiveGoal" type="button">+ 목표 추가</button>';for(const g of initial.goals||[{}])addGoal(g);}
  if(kind==='metric'&&old){$('#field-metricId').disabled=true;$('#field-quarterStart').readOnly=true;}
- if(kind==='settings'&&old&&['metric','annual','partners','partnerBooking','action','mdf','rebate'].some(k=>list(k).length)){$('#field-startMonth').disabled=true;$('#editorHint').textContent='실적이 저장된 후 FY 시작월은 변경할 수 없습니다. 기존 분기 구분을 유지합니다.';}
+ if(kind==='settings'&&old&&['metric','annual','partners','partnerBooking','action','mdf','rebate','quarterPerformance'].some(k=>list(k).length)){$('#field-startMonth').disabled=true;$('#editorHint').textContent='실적이 저장된 후 FY 시작월은 변경할 수 없습니다. 기존 분기 구분을 유지합니다.';}
  $('#editorError').textContent='';$('#archiveButton').hidden=!old||['settings','annual','partners','metric'].includes(kind)||(kind==='definition'&&(window.VENDOR_PROFILES[slug]?.metrics||[]).some(d=>d.id===id));$('#saveButton').disabled=false;$('#saveButton').textContent=editorSubmitLabel();$('#editor').showModal();
  if(kind==='annual')updateAnnualMode();
 }
@@ -242,7 +245,7 @@ async function previewImport(e){importRows=[];$('#confirmImport').disabled=true;
    const m=metrics().find(m=>m.id===s('지표ID'));if(s('벤더')!==name||!m||s('단위')!==m.unit)throw Error(`${i+2}행: 벤더·지표ID·단위가 이 벤더의 설정과 맞지 않습니다.`);
    const num=k=>{const raw=s(k).replaceAll(',','');if(!raw)return null;if(!/^\d+(\.\d+)?$/.test(raw))throw Error(`${i+2}행: ${k} 숫자 형식을 확인해 주세요.`);return Number(raw);};
    const p={metricId:m.id,quarterStart:s('분기시작일'),asOf:s('집계기준일'),actual:num('실적'),target:num('분기타겟'),yoy:num('YoY비교실적'),qoq:num('QoQ비교실적'),source:s('출처')||file.name,note:''};
-   C.validateMetric(p,settings(),today());if(m.unit!=='K USD'&&['actual','target','yoy','qoq'].some(k=>p[k]!==null&&!Number.isInteger(p[k])))throw Error(`${i+2}행: 건수·회사 수·인원은 정수로 입력하세요.`);
+   C.validateMetric(p,settings(),today());checkQuarterSource(p);if(m.unit!=='K USD'&&['actual','target','yoy','qoq'].some(k=>p[k]!==null&&!Number.isInteger(p[k])))throw Error(`${i+2}행: 건수·회사 수·인원은 정수로 입력하세요.`);
    const id=m.id+':'+p.quarterStart;if(seen.has(id))throw Error(`${i+2}행: 같은 지표·분기가 중복되어 있습니다.`);seen.add(id);
    const r=record('metric',id);p.note=r?.current.payload.note||'';if(r?.conflict)throw Error(`${i+2}행: 동시 수정된 항목을 먼저 확인해 주세요.`);
    importRows.push({id,p,parents:r?.heads.map(h=>h.id)||[],label:m.name,unit:m.unit,exists:!!r});
@@ -261,15 +264,16 @@ function bind(){
  $('#editorForm').onchange=e=>{if(e.target.id==='field-mode')updateAnnualMode();};
  $('#extraFields').onclick=e=>{if(e.target.id==='addLiveGoal')addGoal();if(e.target.hasAttribute('data-remove-goal')){if($('#liveGoals').children.length<2){$('#editorError').textContent='목표는 하나 이상 필요합니다.';return;}e.target.closest('fieldset').remove();}};
  document.addEventListener('click',e=>{
-  const b=e.target.closest('[data-new],[data-edit-kind],[data-info],[data-value],[data-definition],[data-conflict],[data-resolve],[data-claim-request]');if(!b||saving)return;
+  const b=e.target.closest('[data-new],[data-edit-kind],[data-info],[data-value],[data-definition],[data-conflict],[data-resolve],[data-claim-request],[data-quarter-view]');if(!b||saving)return;
   if(b.dataset.new){const period=['mdf','rebate'].includes(b.dataset.new)?$('#'+b.dataset.new+'Period').value:null;openEditor(b.dataset.new,null,period&&period!=='all'?{quarterStart:period}:{});}
+  else if(b.dataset.quarterView){if(quarterUI.choose(b.dataset.quarterView))location.hash='performance';}
   else if(b.dataset.claimRequest)claimRequest(b.dataset.claimRequest);
   else if(b.dataset.editKind)openEditor(b.dataset.editKind,b.dataset.record);
   else if(b.dataset.info)showInfo(b.dataset.info);
   else if(b.dataset.value)openEditor('metric',null,{metricId:b.dataset.value,quarterStart:b.dataset.period||currentQ()?.start});
   else if(b.dataset.definition){const m=metrics().find(d=>d.id===b.dataset.definition);$('#infoDialog').close();openEditor('definition',m.id,m);}
   else if(b.dataset.conflict)showConflict(records.find(r=>r.key===b.dataset.conflict));
-  else if(b.dataset.resolve){const r=records.find(r=>r.key===b.dataset.resolve),h=r.heads.find(h=>h.id===b.dataset.head);$('#infoDialog').close();openEditor(r.kind,r.recordId,h.payload,true);if(r.kind==='request'){const all=r.heads.flatMap(h=>h.payload.history||[]),dedup=new Map(all.map(x=>[JSON.stringify([x.at||x.date,x.by,x.text]),x]));editing.old.history=[...dedup.values()].sort((a,b)=>(a.at||a.date).localeCompare(b.at||b.date));}}
+  else if(b.dataset.resolve){const r=records.find(r=>r.key===b.dataset.resolve),h=r.heads.find(h=>h.id===b.dataset.head);$('#infoDialog').close();if(r.kind==='quarterPerformance'){quarterUI.resolve(r,h.payload);location.hash='performance';return;}openEditor(r.kind,r.recordId,h.payload,true);if(r.kind==='request'){const all=r.heads.flatMap(h=>h.payload.history||[]),dedup=new Map(all.map(x=>[JSON.stringify([x.at||x.date,x.by,x.text]),x]));editing.old.history=[...dedup.values()].sort((a,b)=>(a.at||a.date).localeCompare(b.at||b.date));}}
  });
  $('#uploadButton').onclick=()=>{if(!requireQuarter())return;if(!metrics().length){openEditor('definition');return;}$('#importError').textContent='';$('#importPreview').innerHTML='';$('#importFile').value='';$('#confirmImport').disabled=true;importRows=[];$('#importDialog').showModal();};
  $('#downloadTemplate').onclick=downloadTemplate;$('#importFile').onchange=previewImport;$('#confirmImport').onclick=commitImport;
@@ -284,5 +288,15 @@ leadUI=window.createVendorLeads({name,esc,records:()=>records.filter(r=>r.kind==
 dataUIs=Object.keys(window.VendorDataCore.scopes).map(scope=>window.createVendorDataEntry({scope,name,esc,records:()=>records,settings,settingsHeads:()=>record('settings','main')?.heads.map(h=>h.id)||[],today,user:()=>user,saving:()=>saving,
  refresh:async()=>{ingest(await api('GET','/state'));render();},notice,
  save:(entries,onProgress,heads)=>saveBatch(entries.map(e=>({kind:e.kind,recordId:e.recordId,parents:e.parents,payload:e.payload})),onProgress,window.VendorDataCore.scopes[scope].title,heads)}));
+quarterUI=window.createVendorQuarter({name,esc,records:()=>records,settings,settingsHeads:()=>record('settings','main')?.heads.map(h=>h.id)||[],today,saving:()=>saving,notice,conflict:showConflict,
+ save:async(payload,parents,sourceHeads,heads)=>{
+  if(saving)throw Error('다른 저장이 끝난 뒤 다시 시도해 주세요.');saving=true;
+  try{ingest(await api('GET','/state'));
+   if(!C.sameHeads(record('settings','main')?.heads.map(h=>h.id)||[],heads))throw Error('FY 설정이 변경되었습니다. 최신 설정으로 다시 입력해 주세요.');
+   if(!parents.length){const current=records.filter(r=>r.kind==='metric'&&r.current.payload.quarterStart===payload.quarterStart).map(r=>({key:r.key,heads:r.heads.map(h=>h.id).sort()}));const expected=sourceHeads.map(r=>({...r,heads:[...r.heads].sort()}));if(JSON.stringify(current.sort((a,b)=>a.key.localeCompare(b.key)))!==JSON.stringify(expected.sort((a,b)=>a.key.localeCompare(b.key))))throw Error('기존 분기 누적이 변경되었습니다. 최신 값을 확인하고 다시 입력해 주세요.');}
+   P.validate(payload,settings(),today());await saveRecord('quarterPerformance',payload.quarterStart,payload,parents);render();
+  }finally{saving=false;}
+ }
+});
 bind();if(key&&user)start().catch(error=>$('#loginError').textContent=error.message);
 })();

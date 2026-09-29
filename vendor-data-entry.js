@@ -77,7 +77,7 @@ root.createVendorDataEntry=function(ctx){
  }
  async function check(){
   if(busy||ctx.saving())return;busy=true;$('#dataControls').inert=true;$('#dataTable').inert=true;$('#dataCheck').disabled=true;setError('');review=null;$('#dataSave').disabled=true;
-  try{await ctx.refresh();const result=D.preview(rows,{vendor:ctx.name,records:records(),settings:ctx.settings(),date:ctx.today(),author:ctx.user(),allowedKinds:allowed,makeId});
+  try{await ctx.refresh();const result=D.preview(rows,{vendor:ctx.name,records:records(),quarterRecords:ctx.records().filter(r=>r.kind==='quarterPerformance'),settings:ctx.settings(),date:ctx.today(),author:ctx.user(),allowedKinds:allowed,makeId});
    review={...result,settingsHeads:ctx.settingsHeads()};if(!result.errors.length&&!result.entries.some(e=>e.status!=='skip'))dirty=false;draw();reviewHTML(result);$('#dataSave').disabled=result.errors.length>0||!result.entries.some(e=>e.status!=='skip');status('검토 결과를 확인한 뒤 공유 저장을 누르세요.');
   }catch(e){setError(e);}finally{busy=false;$('#dataControls').inert=false;$('#dataTable').inert=false;$('#dataCheck').disabled=false;}
  }

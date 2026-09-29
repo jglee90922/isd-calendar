@@ -102,7 +102,7 @@ function normalized(row,kind,settings,date,old,author){
  return {p,...meta};
 }
 const identity=(kind,p)=>kind==='partnerBooking'?partnerKey(p):kind==='lead'?L.fingerprint(p):kind==='promotion'?[p.title,p.start,p.end].join('|'):kind==='action'?[p.title,p.quarterStart,p.owner].join('|'):[p.title,p.created,p.requester].join('|');
-function preview(rows,{vendor,records,settings,date,author,allowedKinds=null,makeId=()=>crypto.randomUUID().replaceAll('-','')}){
+function preview(rows,{vendor,records,settings,date,author,quarterRecords=[],allowedKinds=null,makeId=()=>crypto.randomUUID().replaceAll('-','')}){
  if(rows.length>5000)throw Error('한 번에 5,000행까지 입력할 수 있습니다.');
  const entries=[],errors=[],byKey=new Map(records.map(r=>[r.key,r])),groups=new Map();
  rows.forEach((raw,i)=>{
@@ -141,6 +141,7 @@ function preview(rows,{vendor,records,settings,date,author,allowedKinds=null,mak
   const payloadSame=previous&&Object.keys(p).filter(k=>k!=='history').every(k=>JSON.stringify(p[k]===''?null:p[k]??null)===JSON.stringify(previous.current.payload[k]===''?null:previous.current.payload[k]??null));
   const responseSame=!item.response||item.response===previous?.current.payload.history?.at(-1)?.text;
   const same=payloadSame&&responseSame;
+  if(kind==='metric'&&!same&&quarterRecords.some(r=>r.kind==='quarterPerformance'&&r.recordId===p.quarterStart&&!r.current.deleted))throw Error('이 분기는 주차별 실적으로 관리 중입니다. 분기 실적 상세에서 수정해 주세요.');
   if(previous&&!same&&item.version!==version(previous))throw Error('기존 데이터가 변경되었습니다. 현재 데이터 불러오기 또는 새 엑셀 내려받기 후 수정해 주세요.');
   if(!previous&&item.version)throw Error('수정할 원본을 찾을 수 없습니다. 벤더와 데이터ID를 확인해 주세요.');
   if(kind==='request'&&!same){
