@@ -4,20 +4,20 @@
 root.createVendorQuarter=function(ctx){
  const P=root.VendorQuarterCore,C=root.VendorDashboardCore,el=document.querySelector('#quarterPerformance'),esc=ctx.esc;
  const $=s=>el.querySelector(s),fmt=n=>P.num(n)===null?'—':n.toLocaleString('en-US',{maximumFractionDigits:2}),percent=n=>n===null?'—':fmt(n)+'%';
- let selected='',draft=null,editing=false,dirty=false,busy=false,parents=[],sourceHeads=[],settingsHeads=[],reviewed=null,initialRows=[],removed=[];
+ let selected='',draft=null,editing=false,dirty=false,busy=false,parents=[],sourceHeads=[],settingsHeads=[],removed=[];
  el.innerHTML=`<div class="quarter-sheet-toolbar"><div class="button-group"><button class="btn" id="qpPrev" aria-label="이전 분기">←</button><select id="qpPeriod" aria-label="분기 실적 조회 분기"></select><button class="btn" id="qpNext" aria-label="다음 분기">→</button></div><div class="button-group"><button class="btn" id="qpExport">엑셀 내려받기</button><button class="btn primary" id="qpEdit">주차별 실적 입력</button></div></div>
  <div id="qpSummary" class="quarter-sheet-summary"></div><p id="qpBasis" class="muted"></p>
  <div id="qpControls" class="quarter-sheet-controls" hidden><label>집계 기준일 <input id="qpAsOf" type="date"></label><button class="btn" id="qpAdd">+ 구분 추가</button><button class="btn" id="qpZero">미입력 주차 0 채우기</button><span>금액 K USD · 실적이 없으면 0, 확인 전이면 빈칸</span></div>
  <div class="quarter-row-feedback" id="qpRowFeedback" hidden><span id="qpRowStatus" role="status"></span><button class="btn" id="qpUndo" hidden>삭제 취소</button></div><p id="qpHint" class="quarter-sheet-hint"></p><p id="qpError" role="alert" class="quarter-sheet-error"></p><div id="qpTable" class="quarter-sheet-scroll" tabindex="0" role="region" aria-label="월별 주차 실적 표"></div>
  <details id="qpComparison"><summary>YoY · QoQ 비교값</summary><p>현재 집계일과 동일한 경과 시점의 전년 동기·직전 분기 실적을 입력합니다. 금액은 K USD입니다.</p><div id="qpComparisonRows" class="quarter-compare-rows"></div></details>
- <div id="qpActions" class="quarter-sheet-actions" hidden><button class="btn" id="qpCancel">취소</button><button class="btn primary" id="qpReview">입력 내용 검토</button></div>
- <div id="qpReviewPanel" class="quarter-sheet-review" hidden><h3>공유 저장 전 확인</h3><p id="qpReviewText"></p><button class="btn primary" id="qpSave">확인한 실적 공유 저장</button></div>`;
+ <div id="qpActions" class="quarter-sheet-actions" hidden><span>저장하면 현재 구분의 입력값이 대시보드·FY 누적에 반영됩니다.</span><button class="btn" id="qpCancel">취소</button></div>`;
  const rec=()=>ctx.records().find(r=>r.kind==='quarterPerformance'&&r.recordId===selected&&!r.current.deleted);
  const legacy=()=>ctx.records().filter(r=>r.kind==='metric'&&!r.current.deleted&&!r.conflict&&r.current.payload.quarterStart===selected).map(r=>r.current.payload);
  const period=()=>C.quarter(selected,ctx.settings());
- const model=()=>P.summarize(draft),savedTotal=()=>P.effective(ctx.records(),selected).total;
+ const model=()=>P.summarize(draft);
  const error=e=>$('#qpError').textContent=e?.message||e||'';
- function invalidate(){dirty=true;reviewed=null;$('#qpReviewPanel').hidden=true;error('');}
+ function editButton(){const b=$('#qpEdit');b.textContent=busy?'저장 중…':editing?'저장':rec()?'주차별 실적 수정':'주차별 실적 입력';b.disabled=busy||editing&&!dirty;}
+ function invalidate(){dirty=true;editButton();error('');}
  function load(){const q=period(),r=rec();draft=r?structuredClone(r.current.payload):P.blank(q.start,q.end<ctx.today()?q.end:ctx.today(),legacy());}
  function summary(total){$('#qpSummary').innerHTML=[[total.partial?'분기 실적 · 입력분':'분기 실적',fmt(total.actual),'K USD'],['분기 타겟',fmt(total.target),'K USD'],['타겟 달성률',percent(P.ratio(total.actual,total.target)),'']].map(([label,value,unit])=>`<div><span>${label}</span><strong>${value}<small>${unit}</small></strong></div>`).join('');}
  function value(m,row,key){const r=row==='total'?m.total:m.rows.find(r=>r.id===row);return key.startsWith('month-')?r.monthly[Number(key.slice(6))]:key==='achievement'?P.ratio(r.actual,r.target):r[key];}
@@ -34,7 +34,7 @@ root.createVendorQuarter=function(ctx){
  function draw(){
   $('#qpRowFeedback').hidden=!editing||!removed.length;$('#qpUndo').hidden=!removed.length;$('#qpRowStatus').textContent=removed.length?removed.at(-1).row.name+' 구분을 삭제했습니다. 저장 전까지 되돌릴 수 있습니다.':'';
   const q=period(),r=rec(),m=displayModel();summary(m.total);
-  $('#qpEdit').textContent=r?'구분·실적 수정':'구분·실적 입력';$('#qpEdit').hidden=editing;$('#qpControls').hidden=!editing;$('#qpActions').hidden=!editing;
+  editButton();$('#qpControls').hidden=!editing;$('#qpActions').hidden=!editing;
   $('#qpAsOf').value=draft.asOf;$('#qpAsOf').min=q.start;$('#qpAsOf').max=q.end<ctx.today()?q.end:ctx.today();
   $('#qpBasis').textContent=`${ctx.name} · ${q.label} · ${q.start} — ${q.end} · ${ctx.settings()?.performanceBasis||'실적 인정 기준 미설정'} · ${!editing&&!r?(m.total.asOf?m.total.asOf+' 기준 기존 분기 누적':'주차별 자료 미입력'):draft.asOf+' 기준 주차 합산'}`;
   $('#qpHint').textContent=r?'금액 K USD · 달력 주차(월~일), 월 경계에서 구분 · 표를 좌우로 움직여 전체 주차와 분기 합계를 확인하세요.':'기존 분기 누적은 오른쪽 합계에 표시합니다. 주차별 자료는 임의 배분하지 않습니다. 주차 실적을 저장하면 해당 분기의 대시보드·FY 합계에 반영됩니다.';
@@ -52,10 +52,10 @@ root.createVendorQuarter=function(ctx){
   $('#qpPeriod').innerHTML=starts.map(start=>`<option value="${start}" ${start===selected?'selected':''}>${esc(C.quarter(start,ctx.settings())?.label||start)} · ${start.slice(0,7)}</option>`).join('');$('#qpNext').disabled=selected>=current.start||busy;$('#qpPrev').disabled=busy;$('#qpPeriod').disabled=busy;
   if(!editing){load();draw();}
  }
- function choose(start){if(busy||ctx.saving())return false;if(dirty&&!confirm('작성 중인 주차 실적을 취소하고 다른 분기를 볼까요?'))return false;selected=start;editing=false;dirty=false;reviewed=null;removed=[];$('#qpReviewPanel').hidden=true;error('');render();return true;}
+ function choose(start){if(busy||ctx.saving())return false;if(dirty&&!confirm('작성 중인 주차 실적을 취소하고 다른 분기를 볼까요?'))return false;selected=start;editing=false;dirty=false;removed=[];error('');render();return true;}
  function edit(seed=null,heads=null){
   if(busy||ctx.saving())return;const r=rec();if(r?.conflict&&!seed){ctx.conflict(r);return;}
-  load();if(seed)draft=structuredClone(seed);initialRows=structuredClone(draft.rows);removed=[];parents=heads||r?.heads.map(h=>h.id)||[];sourceHeads=ctx.records().filter(r=>r.kind==='metric'&&r.current.payload.quarterStart===selected).map(r=>({key:r.key,heads:r.heads.map(h=>h.id)}));settingsHeads=ctx.settingsHeads();editing=true;dirty=false;reviewed=null;$('#qpReviewPanel').hidden=true;error('');draw();
+  load();if(seed)draft=structuredClone(seed);removed=[];parents=heads||r?.heads.map(h=>h.id)||[];sourceHeads=ctx.records().filter(r=>r.kind==='metric'&&r.current.payload.quarterStart===selected).map(r=>({key:r.key,heads:r.heads.map(h=>h.id)}));settingsHeads=ctx.settingsHeads();editing=true;dirty=!!seed;error('');draw();
  }
  function updateLabels(row){
   for(const input of el.querySelectorAll('[data-row-id]'))if(input.dataset.rowId===row.id){const week=input.dataset.week,w=week&&P.months(selected).flatMap(m=>m.weeks).find(w=>w.key===week);input.setAttribute('aria-label',row.name+' '+(w?week.slice(0,7)+' '+w.label:({target:'분기 타겟',yoy:'전년 동기 비교값',qoq:'직전 분기 비교값'}[input.dataset.amount])));}
@@ -68,17 +68,16 @@ root.createVendorQuarter=function(ctx){
  });
  $('#qpAsOf').onchange=()=>{draft.asOf=$('#qpAsOf').value;invalidate();draw();};
  $('#qpPrev').onclick=()=>choose(C.quarter(selected,ctx.settings(),-1).start);$('#qpNext').onclick=()=>choose(C.quarter(selected,ctx.settings(),1).start);
- $('#qpPeriod').onchange=e=>{if(!choose(e.target.value))e.target.value=selected;};$('#qpEdit').onclick=()=>edit();
+ $('#qpPeriod').onchange=e=>{if(!choose(e.target.value))e.target.value=selected;};$('#qpEdit').onclick=()=>editing?save():edit();
  $('#qpAdd').onclick=()=>{if(!editing||busy)return;if(draft.rows.length>=20){error('구분은 최대 20개까지 추가할 수 있습니다.');return;}let n=1;while(draft.rows.some(r=>r.name==='구분 '+n))n++;draft.rows.push({id:'extra_'+crypto.randomUUID().replaceAll('-',''),name:'구분 '+n,values:{},target:null,yoy:null,qoq:null});invalidate();draw();};
  el.addEventListener('click',e=>{const b=e.target.closest('[data-remove]');if(!b||!editing||busy)return;const index=draft.rows.findIndex(r=>r.id===b.dataset.remove);if(index<0)return;removed.push({row:structuredClone(draft.rows[index]),index});draft.rows.splice(index,1);invalidate();draw();});
  $('#qpUndo').onclick=()=>{if(!editing||busy||!removed.length)return;if(draft.rows.length>=20){error('삭제를 되돌리려면 구분을 20개 미만으로 줄여 주세요.');return;}const last=removed.pop();draft.rows.splice(Math.min(last.index,draft.rows.length),0,last.row);invalidate();draw();};
  $('#qpZero').onclick=()=>{for(const row of draft.rows)for(const w of P.months(selected).flatMap(m=>m.weeks))if(w.start<=draft.asOf&&row.values[w.key]==null)row.values[w.key]=0;invalidate();draw();};
- $('#qpCancel').onclick=()=>{if(busy||dirty&&!confirm('작성 중인 주차 실적을 취소할까요?'))return;editing=false;dirty=false;reviewed=null;$('#qpReviewPanel').hidden=true;error('');render();};
- $('#qpReview').onclick=()=>{try{P.validate(draft,ctx.settings(),ctx.today());const m=model(),prior=savedTotal(),changes=P.rowChanges(initialRows,draft.rows);reviewed=JSON.stringify(draft);$('#qpReviewText').textContent=`${period().label} · ${draft.asOf} 기준 · ${draft.rows.length}개 항목. 분기 실적 ${fmt(prior.actual)} → ${fmt(m.total.actual)} K USD / 타겟 ${fmt(m.total.target)} K USD / 달성률 ${percent(m.total.achievement)}. ${m.missing?'미입력 '+m.missing+'칸이 있어 입력한 금액만 합산합니다. ':''}현재 표의 구분만 합산해 대시보드·FY 누적에 반영합니다. 구분 간 금액이 중복되지 않도록 입력하세요.${changes.length?' 구분 변경: '+changes.join(' / ')+'.'+(changes.some(c=>c.startsWith('삭제:'))?' 삭제한 구분의 값은 합계에서 제외됩니다.':''):''}`;$('#qpReviewPanel').hidden=false;error('');}catch(e){error(e);}};
- $('#qpSave').onclick=async()=>{if(busy||ctx.saving()||reviewed!==JSON.stringify(draft))return;busy=true;$('#qpSave').disabled=true;$('#qpControls').inert=true;$('#qpTable').inert=true;$('#qpComparison').inert=true;$('#qpActions').inert=true;
-  try{P.validate(draft,ctx.settings(),ctx.today());await ctx.save(structuredClone(draft),parents,sourceHeads,settingsHeads);editing=false;dirty=false;reviewed=null;$('#qpReviewPanel').hidden=true;error('');render();ctx.notice('주차 실적을 저장했습니다. 대시보드·분기 비교·FY 누적에 반영되었습니다.');}
-  catch(e){error(e);}finally{busy=false;$('#qpSave').disabled=false;$('#qpControls').inert=false;$('#qpTable').inert=false;$('#qpComparison').inert=false;$('#qpActions').inert=false;render();}
- };
+ $('#qpCancel').onclick=()=>{if(busy||dirty&&!confirm('작성 중인 주차 실적을 취소할까요?'))return;editing=false;dirty=false;error('');render();};
+ async function save(){if(!editing||!dirty||busy||ctx.saving())return;busy=true;editButton();$('#qpControls').inert=true;$('#qpTable').inert=true;$('#qpComparison').inert=true;$('#qpActions').inert=true;
+  try{P.validate(draft,ctx.settings(),ctx.today());await ctx.save(structuredClone(draft),parents,sourceHeads,settingsHeads);editing=false;dirty=false;removed=[];error('');render();ctx.notice('주차 실적을 저장했습니다. 대시보드·분기 비교·FY 누적에 반영되었습니다.');}
+  catch(e){error(e);$('#qpError').scrollIntoView({block:'center',behavior:'smooth'});}finally{busy=false;editButton();$('#qpControls').inert=false;$('#qpTable').inert=false;$('#qpComparison').inert=false;$('#qpActions').inert=false;render();}
+ }
  $('#qpTable').addEventListener('paste',e=>{if(!editing||busy||!e.target.dataset.week)return;const text=e.clipboardData?.getData('text/plain');if(!text||!/[\t\n]/.test(text))return;e.preventDefault();
   try{const lines=text.replace(/\r/g,'').replace(/\n$/,'').split('\n').map(line=>line.split('\t')),weeks=P.months(selected).flatMap(m=>m.weeks),start=weeks.findIndex(w=>w.key===e.target.dataset.week),rowIndex=draft.rows.findIndex(r=>r.id===e.target.dataset.rowId);
    if(lines.length+rowIndex>draft.rows.length||lines.some(line=>line.length+start>weeks.length))throw Error('항목·주차 범위를 넘었습니다. 필요한 항목을 먼저 추가해 주세요.');
