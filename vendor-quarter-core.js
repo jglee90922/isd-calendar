@@ -48,7 +48,8 @@ function summarize(p){
   return {...row,metricId:row.id,quarterStart:p.quarterStart,asOf:p.asOf,values,
    monthly:periods.map(m=>sumEntered(m.weeks.filter(w=>w.start<=p.asOf).map(w=>values[w.key]))),actual:sumEntered(elapsed.map(w=>values[w.key])),achievement:ratio(sumEntered(elapsed.map(w=>values[w.key])),row.target),partial:elapsed.some(w=>values[w.key]===null),missing:elapsed.filter(w=>values[w.key]===null).length};
  });
- const total={metricId:'deal_total',quarterStart:p.quarterStart,asOf:p.asOf,actual:sumEntered(rows.map(r=>r.actual)),target:sum(rows.map(r=>r.target)),yoy:sum(rows.map(r=>r.yoy)),qoq:sum(rows.map(r=>r.qoq)),monthly:periods.map((m,i)=>sumEntered(rows.map(r=>r.monthly[i]))),values:Object.fromEntries(periods.flatMap(m=>m.weeks).map(w=>[w.key,sumEntered(rows.map(r=>r.values[w.key]))]))};
+ // A category can have no target. Sum the entered targets, keeping all-blank targets unknown.
+ const total={metricId:'deal_total',quarterStart:p.quarterStart,asOf:p.asOf,actual:sumEntered(rows.map(r=>r.actual)),target:sumEntered(rows.map(r=>r.target)),yoy:sum(rows.map(r=>r.yoy)),qoq:sum(rows.map(r=>r.qoq)),monthly:periods.map((m,i)=>sumEntered(rows.map(r=>r.monthly[i]))),values:Object.fromEntries(periods.flatMap(m=>m.weeks).map(w=>[w.key,sumEntered(rows.map(r=>r.values[w.key]))]))};
  total.missing=rows.reduce((n,r)=>n+r.missing,0);total.partial=total.missing>0;
  total.achievement=ratio(total.actual,total.target);
  return {quarterStart:p.quarterStart,periods,rows,parts:rows,total,hasOther:rows.some(r=>!base.some(b=>b.id===r.id)),otherActual:rows.some(r=>!base.some(b=>b.id===r.id))?sumEntered(rows.filter(r=>!base.some(b=>b.id===r.id)).map(r=>r.actual)):0,missing:rows.reduce((n,r)=>n+r.missing,0)};
