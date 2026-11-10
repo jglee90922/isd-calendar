@@ -22,7 +22,7 @@ function model({date,settings,metrics=[],performance=[],annual=null,partners=nul
  const fyPartial=weeklySum&&(!automatic||quarters.some(p=>p.partial));
  const target=annualMatches&&annual.mode==='set'&&number(annual.target)>0?annual.target:null;
  const registered=number(partners?.registered),active=number(partners?.active);
- return {q,booking,current,mix,otherActual:currentGroup.otherActual,hasOther:currentGroup.hasOther,newShare:ratio(number(current.actual)!==null?parts[0].actual:null,current.actual),currentSource:q&&sheets.has(q.start)?'weekly':'aggregate',achievement,progress:cap(achievement),newActual:number(parts[0].actual),renewalActual:number(parts[1].actual),renewalShare:ratio(number(current.actual)!==null?parts[1].actual:null,current.actual),
+ return {q,week:q?C.quarterWeek(date,q):null,booking,current,mix,otherActual:currentGroup.otherActual,hasOther:currentGroup.hasOther,newShare:ratio(number(current.actual)!==null?parts[0].actual:null,current.actual),currentSource:q&&sheets.has(q.start)?'weekly':'aggregate',achievement,progress:cap(achievement),newActual:number(parts[0].actual),renewalActual:number(parts[1].actual),renewalShare:ratio(number(current.actual)!==null?parts[1].actual:null,current.actual),
   mixNote:number(current.actual)!==null?(current.actual===0?'집계 실적 0 · 구성 비율 없음':current.asOf+' 기준'):parts[0].asOf&&parts[1].asOf&&parts[0].asOf!==parts[1].asOf?'신규·리뉴얼 집계 기준일을 맞춰 주세요.':currentGroup.missing?'주차별 미입력 값 확인 필요':currentGroup.conflict?'동시 수정 내용 확인 필요':'신규·리뉴얼 실적 입력 필요',
   partner:{registered,active,inactive:registered!==null&&active!==null&&active<=registered?registered-active:null,rate:active!==null&&registered!==null&&active<=registered?ratio(active,registered):null,newActive:number(partners?.newActive),reactivated:number(partners?.reactivated),asOf:partners?.asOf||'',rule:partners?.rule||''},
   fy:{actual:fyActual,target,achievement:ratio(fyActual,target),mode:annualMatches?annual.mode:'pending',source:fySource,partial:fyPartial,known:known.length,asOf:weeklySum?known.at(-1).asOf:manualValid?annual.asOf:automatic?quarters.at(-1).asOf:'',completed,expected:quarters.length,metricMismatch:!!annual&&!annualMatches}
@@ -35,7 +35,7 @@ function changes(current,base,label){const n=C.growth(current,base);return `<spa
 function render(m,activityCards=''){
  const q=m.q,p=m.partner,fy=m.fy,b=m.booking,actual=m.current.actual,target=m.current.target;
  const ringNote=m.current.partial?'입력분 기준':!q?'FY 설정 필요':number(actual)===null?'실적 입력 필요':number(target)===null?'분기 타겟 미입력':achievementLabel(m.achievement);
- const quarterLabel=q?q.label:'이번 Q',fyLabel=q?q.fy:'현재 FY';
+ const quarterLabel=q?q.label+(m.week?' · '+m.week.label:''):'이번 Q',fyLabel=q?q.fy:'현재 FY';
  const source=fy.source==='manual'?'FY 누적 입력값':fy.source==='partial-quarters'?`입력된 ${fy.known} / ${fy.expected}개 Q 합산`:fy.source==='quarters'?(fy.partial?'입력된 주차 실적 자동 합산':'이번 Q까지 자동 합산'):fy.metricMismatch?'전체 합계 기준 입력 필요':q?`${fy.completed} / ${fy.expected}개 Q 집계 완료`:'FY 설정 후 집계';
  const targetLabel=fy.mode==='none'?'연간 타겟 없음':fy.target!==null?fmt(fy.target)+' K USD':'연간 타겟 미입력';
  const remaining=number(actual)!==null&&number(target)!==null?Math.max(0,target-actual):null;

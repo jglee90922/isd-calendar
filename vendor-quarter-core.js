@@ -19,6 +19,9 @@ function months(start){
   return {index:i,label:(i+1)+'M',date:iso(first).slice(0,7),name:first.getUTCFullYear()+'년 '+(first.getUTCMonth()+1)+'월',weeks};
  });
 }
+// Fiscal month number (1~12) of a calendar month 'YYYY-MM' for a vendor whose FY starts at settings.startMonth.
+function fiscalMonth(yearMonth,settings){const m=Number(String(yearMonth||'').slice(5,7)),s=Number(settings?.startMonth)||1;return m>=1&&m<=12?((m-s+12)%12)+1:null;}
+function monthLabel(month,q,settings){const fm=fiscalMonth(month.date,settings);return q&&fm?q.fy+' M'+fm:month.label;}
 function blank(start,date,metrics=[]){
  return {quarterStart:start,asOf:date,weekMode:'calendar-monday',rows:base.map(b=>{const p=metrics.find(m=>m.metricId===b.id&&m.quarterStart===start)||{};return {...b,values:{},target:num(p.target),yoy:num(p.yoy),qoq:num(p.qoq)};})};
 }
@@ -73,5 +76,5 @@ function historyMetrics(records){
  if(!names.size)for(const b of base)names.set(b.id,b.name);
  return [{id:'deal_total',name:'전체 합계',unit:'K USD'},...Array.from(names,([id,name])=>({id,name,unit:'K USD'}))];
 }
-root.VendorQuarterCore={base,months,blank,validate,summarize,effective,num,sum,sumEntered,ratio,rowChanges,historyMetrics};if(typeof module==='object')module.exports=root.VendorQuarterCore;
+root.VendorQuarterCore={base,months,fiscalMonth,monthLabel,blank,validate,summarize,effective,num,sum,sumEntered,ratio,rowChanges,historyMetrics};if(typeof module==='object')module.exports=root.VendorQuarterCore;
 })(typeof window==='object'?window:globalThis);

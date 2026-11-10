@@ -13,6 +13,13 @@ function quarter(date,settings,offset=0){
  const fyLabelYear=fyY+(settings.fyNaming==='end'&&startMonth!==0?1:0);
  return {start:iso(start),end:iso(end),fyStart:iso(new Date(Date.UTC(fyY,startMonth,1))),fyEnd:iso(new Date(Date.UTC(fyY+1,startMonth,0))),q,label:`FY${String(fyLabelYear).slice(-2)} Q${q}`,fy:`FY${String(fyLabelYear).slice(-2)}`};
 }
+function quarterWeek(date,q){
+ // 7-day blocks counted from the quarter start date: 1주차 = start ~ start+6. The last block may be short.
+ if(!q||!validDate(date)||!validDate(q.start)||!validDate(q.end)||date<q.start||date>q.end)return null;
+ const day=86400000,s=Date.parse(q.start+'T00:00:00Z'),e=Date.parse(q.end+'T00:00:00Z'),d=Date.parse(date+'T00:00:00Z');
+ const week=Math.floor((d-s)/day/7)+1,total=Math.ceil(((e-s)/day+1)/7),from=new Date(s+(week-1)*7*day),to=new Date(Math.min(s+(week*7-1)*day,e));
+ return {week,total,start:iso(from),end:iso(to),label:week+'주차'};
+}
 function index(vendorDocs,vendorId){
  const groups=new Map();for(const [id,doc] of Object.entries(vendorDocs||{})){
   const batch=doc?._dashboardBatch;
@@ -49,6 +56,6 @@ function validateMetric(p,settings,today){
  for(const k of ['actual','target','yoy','qoq'])if(p[k]!==null&&(amount(p[k])===null||p[k]<0))throw Error('금액·건수는 0 이상의 숫자로 입력해 주세요.');
  if(p.target===0)throw Error('타겟이 없으면 비워 두세요. 타겟은 0보다 커야 합니다.');
 }
-root.VendorDashboardCore={vendors,validDate,quarter,index,sameHeads,growth,total,dealTotal,validateMetric,calendarPromotions};
+root.VendorDashboardCore={vendors,validDate,quarter,quarterWeek,index,sameHeads,growth,total,dealTotal,validateMetric,calendarPromotions};
 if(typeof module==='object')module.exports=root.VendorDashboardCore;
 })(typeof window==='object'?window:globalThis);
